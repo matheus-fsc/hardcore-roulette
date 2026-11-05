@@ -59,6 +59,9 @@ final class SmartHorde implements org.bukkit.event.Listener {
         final java.util.EnumMap<Material, Integer> inv = new java.util.EnumMap<>(Material.class);
         int invTotal;
         int ladders;         // escadas craftadas (lenhador)
+        boolean hasTable;    // bancada guardada no inventario
+        Block table;         // bancada colocada no chao
+        long craftUntil;     // usando a bancada ate
     }
 
     private int capacity() { return Math.max(0, plugin.getConfig().getInt("horde.block-capacity", 32)); }
@@ -243,7 +246,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
         // 0) escada: qualquer zumbi da horda sobe (a do lenhador ou de jogador); o lenhador estende a escada
         if (dy >= 1 && climbLadder(z, s, zl, feet, dir)) return;
-        if (s.role == LUMBER && dy >= 2 && horiz < 6 && buildLadder(z, s, feet, dir)) return;
+        if (s.role == LUMBER && dy >= 2 && horiz < 6 && buildLadder(z, s, feet, dir, dy)) return;
 
         // brutamontes/tanque nao mexem em blocos: so tentam destravar e seguem os outros
         if (tool(s) == null) {
@@ -397,11 +400,23 @@ final class SmartHorde implements org.bukkit.event.Listener {
     private static boolean isWood(Material m) { return Tag.PLANKS.isTagged(m) || Tag.LOGS.isTagged(m); }
 
     /** Crafta escadas "na mao" com a madeira do inventario: ~4 tabuas (ou 1 tora) = 3 escadas. */
-    private boolean craftLadders(State s) {
+    /** Madeira disponivel em "unidades de tabua" (tora = 4 tabuas). */
+    private static int woodUnits(State s) {
         int units = 0;
         for (var e : s.inv.entrySet()) if (isWood(e.getKey())) units += e.getValue() * (Tag.LOGS.isTagged(e.getKey()) ? 4 : 1);
-        if (units < 4) return false;
-        int toUse = 4;
+        return units;
+    }
+
+    /** Escadas: receita 3x3 (7 gravetos = 3 escadas, ~4 tabuas). So funciona perto de uma bancada. */
+    private boolean craftLadders(State s) {
+        if (woodUnits(s) < 4) return false;
+        consumeWood(s, 4);
+        s.ladders += 3;
+        return true;
+    }
+
+    private static void consumeWood(State s, int units) {
+        int toUse = units;
         for (var it = s.inv.entrySet().iterator(); it.hasNext() && toUse > 0; ) {
             var e = it.next();
             if (!isWood(e.getKey())) continue;
@@ -413,9 +428,46 @@ final class SmartHorde implements org.bukkit.event.Listener {
             }
             if (e.getValue() == 0) it.remove();
         }
-        s.ladders += 3;
+    }
+
+    /**
+     * Prepara as escadas no chao, como um jogador: crafta a bancada (2x2, 4 tabuas) se nao tiver, coloca do lado,
+     * "usa" por 1,5s, crafta todas as escadas que a subida precisa e guarda a bancada de volta.
+     * Retorna true enquanto estiver ocupado com isso.
+     */
+    private boolean prepareLadders(Zombie z, State s, Block feet, BlockFace towardWall, int need) {
+        long now = System.currentTimeMillis();
+        if (s.craftUntil > 0) {
+            if (now < s.craftUntil) { z.swingMainHand(); return true; } // usando a bancada
+            while (s.ladders < need && craftLadders(s)) { }                 // termina: crafta o lote
+            s.craftUntil = 0;
+            if (s.table != null && s.table.getType() == Material.CRAFTING_TABLE) { // guarda a bancada
+                s.table.getWorld().spawnParticle(Particle.BLOCK, s.table.getLocation().add(0.5, 0.5, 0.5), 15, 0.3, 0.3, 0.3, s.table.getBlockData());
+                s.table.setType(Material.AIR);
+                s.hasTable = true;
+            }
+            s.table = null;
+            return false;
+        }
+        int cost = 4 + (s.hasTable ? 0 : 4); // um lote de escadas (+ a bancada se ainda nao tiver)
+        if (woodUnits(s) < cost) return gather(z, s, feet, toVec(towardWall), false); // junta madeira (so lenhador quebra)
+        Block spot = null;
+        for (BlockFace f : new BlockFace[]{towardWall.getOppositeFace(), BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST}) {
+            Block b = feet.getRelative(f);
+            if (f != towardWall && replaceable(b) && b.getRelative(BlockFace.DOWN).isSolid()) { spot = b; break; }
+        }
+        if (spot == null) return false; // sem lugar para a bancada: segue sem escada
+        if (!s.hasTable) consumeWood(s, 4); // crafta a bancada na mao (receita 2x2)
+        s.hasTable = false;
+        spot.setType(Material.CRAFTING_TABLE);
+        spot.getWorld().playSound(spot.getLocation(), Sound.BLOCK_WOOD_PLACE, 1f, 1f);
+        s.table = spot;
+        s.craftUntil = now + 1500;
+        z.lookAt(spot.getLocation().add(0.5, 0.5, 0.5));
         return true;
     }
+
+    private static Vector toVec(BlockFace f) { return new Vector(f.getModX(), 0, f.getModZ()); }
 
     private static boolean placeLadder(Block at, BlockFace towardWall) {
         Block wall = at.getRelative(towardWall);
@@ -430,10 +482,12 @@ final class SmartHorde implements org.bukkit.event.Listener {
     }
 
     /** Lenhador com parede na direcao do alvo: crafta (se preciso) e prega a primeira escada. */
-    private boolean buildLadder(Zombie z, State s, Block feet, Vector dir) {
+    private boolean buildLadder(Zombie z, State s, Block feet, Vector dir, double dy) {
         BlockFace face = toFace(dir);
         if (!feet.getRelative(face).getType().isOccluding()) return false; // sem parede: usa pilar
-        if (s.ladders == 0 && !craftLadders(s)) return false;              // sem madeira: usa pilar/junta
+        int need = (int) Math.ceil(dy) + 1;
+        if (s.ladders < need && prepareLadders(z, s, feet, face, need)) return true; // na bancada / juntando madeira
+        if (s.ladders == 0) return false;                                  // sem madeira nem escada: usa pilar
         if (!placeLadder(feet, face)) return false;
         s.ladders--;
         s.lastPlace = System.currentTimeMillis();
@@ -449,7 +503,6 @@ final class SmartHorde implements org.bukkit.event.Listener {
             BlockFace towardWall = feet.getBlockData() instanceof org.bukkit.block.data.type.Ladder l ? l.getFacing().getOppositeFace() : toFace(dir);
             Block above = feet.getRelative(BlockFace.UP);
             if (above.getType() != Material.LADDER && s.role == LUMBER && above.getRelative(towardWall).getType().isOccluding()) {
-                if (s.ladders == 0) craftLadders(s);
                 if (s.ladders > 0 && placeLadder(above, towardWall)) s.ladders--;
             }
             if (above.getType() == Material.LADDER || (above.isPassable() && above.getRelative(BlockFace.UP).isPassable()
@@ -498,6 +551,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             while (n > 0) { int k = Math.min(64, n); e.getDrops().add(new ItemStack(en.getKey(), k)); n -= k; }
         }
         if (s.ladders > 0) e.getDrops().add(new ItemStack(Material.LADDER, Math.min(64, s.ladders)));
+        if (s.hasTable) e.getDrops().add(new ItemStack(Material.CRAFTING_TABLE));
     }
 
     private void cancelBreak(Zombie z, State s) {
