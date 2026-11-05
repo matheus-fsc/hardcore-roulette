@@ -1,0 +1,47 @@
+name: HardcoreRoulette
+version: 1.0.0
+main: dev.math.hcroulette.HardcoreRoulette
+api-version: "26.3"
+load: POSTWORLD
+description: Hardcore em grupo - alguem morreu, todo mundo recomeca num mundo votado.
+commands:
+  vote:
+    description: Abre o menu para votar no proximo mundo
+    usage: /vote [numero]
+    aliases: [votar]
+  ranking:
+    description: Ranking de mortes, tempo jogado e dano
+    aliases: [metricas, podio]
+  hcstatus:
+    description: Mostra o estado do hardcore
+  hcmodo:
+    description: Troca entre modo votacao e modo lobotomia
+    usage: /hcmodo <votacao|lobotomia>
+    permission: hcroulette.admin
+  migrar:
+    description: Migra o servidor do PC para a VPS (quando o host vai sair)
+    permission: hcroulette.admin
+  invasao:
+    description: Invasoes de faccoes (zumbis, piratas, guilda)
+    usage: /invasao <zumbis|piratas|guilda|parar|status> [qtd] [alvo]
+    permission: hcroulette.admin
+  coord:
+    description: Salva e compartilha coordenadas (por run)
+    usage: /coord [salvar|publico|lista|mostrar|apagar] <nome>
+    aliases: [coords, cord, waypoint]
+  party:
+    description: Party do modo party (convidar, aceitar, sair, lista)
+    usage: /party [convidar <nick>|aceitar|sair|lista]
+    aliases: [p]
+  dia:
+    description: Mostra o dia/periodo e o tempo vivo de cada jogador
+  bwhitelist:
+    description: Whitelist de jogadores Bedrock (gamertag)
+    usage: /bwhitelist <add|remove> <gamertag>
+    permission: hcroulette.admin
+  hcreset:
+    description: Forca uma votacao de reset
+    permission: hcroulette.admin
+permissions:
+  hcroulette.admin:
+    default: op
