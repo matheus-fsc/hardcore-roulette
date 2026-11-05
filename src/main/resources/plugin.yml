@@ -42,6 +42,10 @@ commands:
   hcreset:
     description: Forca uma votacao de reset
     permission: hcroulette.admin
+  arena:
+    description: Arena de teste da horda (so com arena-mode)
+    usage: /arena load|run|stop
+    permission: hcroulette.admin
 permissions:
   hcroulette.admin:
     default: op

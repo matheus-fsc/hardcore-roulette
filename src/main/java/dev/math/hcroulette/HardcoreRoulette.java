@@ -93,6 +93,8 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
 
     // ---------------------------------------------------------------- ciclo de vida
 
+    private Arena arena;
+
     @Override
     public void onEnable() {
         runKey = new NamespacedKey(this, "run");
@@ -100,6 +102,11 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         getConfig().addDefault("mode", "votacao");
         getConfig().addDefault("pregen-radius", 300);
         getConfig().options().copyDefaults(true);
+        if (getConfig().getBoolean("arena-mode", false)) { // servidor de teste: so horda + comandos da arena
+            arena = new Arena(this);
+            getLogger().info("MODO ARENA: mecanicas do hardcore desligadas");
+            return;
+        }
         loadState();
         loadStats();
         for (Player p : Bukkit.getOnlinePlayers()) sessionStart.put(p.getUniqueId(), System.currentTimeMillis());
@@ -137,6 +144,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (arena != null) return; // arena nao tem estado do hardcore para salvar
         if (bar != null) Bukkit.getOnlinePlayers().forEach(p -> p.hideBossBar(bar));
         saveState();
         saveStats();
@@ -1101,6 +1109,12 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+        if (cmd.getName().equalsIgnoreCase("arena")) {
+            if (arena == null) sender.sendMessage("arena-mode desligado neste servidor");
+            else arena.command(sender, args);
+            return true;
+        }
+        if (arena != null) return true; // na arena os outros comandos nao existem
         switch (cmd.getName().toLowerCase()) {
             case "vote" -> {
                 if (!(sender instanceof Player p)) return true;

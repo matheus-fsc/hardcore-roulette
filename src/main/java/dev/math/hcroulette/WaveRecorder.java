@@ -48,7 +48,7 @@ final class WaveRecorder implements Listener {
     private final World world;
     private final File dir;
     private final int x0, y0, z0, sx, sy, sz;
-    private final long start = System.currentTimeMillis();
+    private final long start = SmartHorde.now();
     private final Map<Material, Integer> palette = new LinkedHashMap<>();
     private final List<String> events = new ArrayList<>();
     private final List<String> blocks = new ArrayList<>();
@@ -166,7 +166,7 @@ final class WaveRecorder implements Listener {
     <S> void frame(Map<java.util.UUID, S> horde, Function<S, Object[]> info) {
         if (out == null) return;
         StringBuilder sb = new StringBuilder(256);
-        sb.append("{\"t\":").append(System.currentTimeMillis() - start).append(",\"z\":[");
+        sb.append("{\"t\":").append(SmartHorde.now() - start).append(",\"z\":[");
         boolean first = true;
         for (var en : horde.entrySet()) {
             Entity e = Bukkit.getEntity(en.getKey());
@@ -183,7 +183,7 @@ final class WaveRecorder implements Listener {
         sb.append("],\"p\":[");
         first = true;
         for (Player p : world.getPlayers()) {
-            if (p.getGameMode() == GameMode.SPECTATOR) continue;
+            if (p.getGameMode() == GameMode.SPECTATOR || p.getGameMode() == GameMode.CREATIVE) continue; // so quem joga de verdade
             Location l = p.getLocation();
             if (!first) sb.append(',');
             first = false;
@@ -193,6 +193,16 @@ final class WaveRecorder implements Listener {
                     .append(p.isSprinting() ? 1 : 0).append(',').append(p.isSneaking() ? 1 : 0).append(',')
                     .append(r2(p.getVelocity().getY())).append(",\"").append(p.getInventory().getItemInMainHand().getType().name().toLowerCase())
                     .append("\",").append(p.isOnGround() ? 1 : 0).append(']');
+        }
+        for (java.util.UUID id : SmartHorde.EXTRA_TARGETS) { // arena: o substituto entra como jogador "dummy"
+            Entity e = Bukkit.getEntity(id);
+            if (!(e instanceof org.bukkit.entity.LivingEntity le) || e.getWorld() != world) continue;
+            Location l = le.getLocation();
+            if (!first) sb.append(',');
+            first = false;
+            double hp = Arena.hp(id);
+            sb.append("[\"dummy\",").append(r2(l.getX())).append(',').append(r2(l.getY())).append(',').append(r2(l.getZ()))
+                    .append(',').append(Math.round(hp * 10) / 10.0).append(",0,\"survival\",0,0,0,\"iron_sword\",1]");
         }
         sb.append("],\"b\":[").append(String.join(",", blocks)).append("],\"e\":[").append(String.join(",", events)).append("]}\n");
         blocks.clear();
@@ -204,6 +214,8 @@ final class WaveRecorder implements Listener {
             out = null;
         }
     }
+
+    String name() { return dir.getName(); }
 
     void close() {
         HandlerList.unregisterAll(this);
