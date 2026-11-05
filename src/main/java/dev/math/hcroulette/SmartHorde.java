@@ -76,6 +76,8 @@ final class SmartHorde implements org.bukkit.event.Listener {
         boolean assigned;    // ja passou pela distribuicao de alvos
     }
 
+    private boolean opt(String k) { return plugin.getConfig().getBoolean("horde." + k, true); }
+
     private int capacity() { return Math.max(0, plugin.getConfig().getInt("horde.block-capacity", 32)); }
 
     /** Bloco que da para usar em pilar/ponte: cubo solido comum (nada de flor, vidro fino, bau etc.). */
@@ -86,6 +88,13 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
     private boolean addBlock(State s, Material m) {
         if (!buildable(m) || s.invTotal >= capacity()) return false;
+        if (Tag.LOGS.isTagged(m) && opt("log-to-planks")) { // receita 2x2 no inventario: 1 tora = 4 tabuas
+            Material pl = planksOf(m);
+            int n = Math.min(4, capacity() - s.invTotal);
+            s.inv.merge(pl, n, Integer::sum);
+            s.invTotal += n;
+            return true;
+        }
         s.inv.merge(m, 1, Integer::sum);
         s.invTotal++;
         return true;
@@ -104,6 +113,9 @@ final class SmartHorde implements org.bukkit.event.Listener {
     private final HardcoreRoulette plugin;
     private final NamespacedKey key;
     private final Map<UUID, State> horde = new HashMap<>();
+    /** Gravador da onda atual (para o simulador); null = nao gravando. */
+    static WaveRecorder REC;
+    private final Map<UUID, Ramp> ramps = new HashMap<>(); // uma rampa por jogador-alvo
     private BukkitTask task;
 
     SmartHorde(HardcoreRoulette plugin) {
@@ -112,6 +124,12 @@ final class SmartHorde implements org.bukkit.event.Listener {
         Bukkit.getPluginManager().registerEvents(this, plugin);
         plugin.getConfig().addDefault("horde.block-capacity", 32);
         plugin.getConfig().addDefault("horde.debug", false);
+        // vindos do simulador (horde-sim): cada um ligavel
+        plugin.getConfig().addDefault("horde.log-to-planks", true);
+        plugin.getConfig().addDefault("horde.record", true);
+        plugin.getConfig().addDefault("horde.ramp", true);
+        plugin.getConfig().addDefault("horde.surround", true);
+        plugin.getConfig().addDefault("horde.escape-ceiling", true);
         // restos de uma horda anterior (crash/restart) somem ao carregar
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             for (World w : Bukkit.getWorlds()) for (Zombie z : w.getEntitiesByClass(Zombie.class))
@@ -146,6 +164,12 @@ final class SmartHorde implements org.bukkit.event.Listener {
             // comecam sem blocos (vanilla): so colocam o que mineraram no caminho / antes de subir
             horde.put(z.getUniqueId(), s);
             w.spawnParticle(Particle.LARGE_SMOKE, base.clone().add(0, 1, 0), 12, 0.3, 0.6, 0.3, 0.01);
+        }
+        if (REC == null && plugin.getConfig().getBoolean("horde.record", true)) {
+            int low = target.getLocation().getBlockY();
+            for (Location l : spots) low = Math.min(low, l.getBlockY());
+            try { REC = new WaveRecorder(plugin, w, target.getLocation(), "zumbis", low); }
+            catch (Exception ex) { plugin.getLogger().warning("gravador: " + ex); }
         }
         if (task == null) task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 10L, 10L);
     }
@@ -192,6 +216,8 @@ final class SmartHorde implements org.bukkit.event.Listener {
             e.remove();
         }
         horde.clear();
+        ramps.clear();
+        stopRecording();
         if (task != null) { task.cancel(); task = null; }
     }
 
@@ -248,6 +274,10 @@ final class SmartHorde implements org.bukkit.event.Listener {
             double dist = zl.distance(tl);
             long now = System.currentTimeMillis();
 
+            // RAMPA DA HORDA: alvo bem acima -> todos constroem a mesma escadaria ate ele
+            if (tool(s) != null && opt("ramp") && !s.gathering && tl.getY() - zl.getY() >= 3) {
+                if (rampTick(z, s, t, now)) { debug(z, s, dist, tl.getY() - zl.getY()); continue; }
+            }
             // FASE 1 (COLETA): alvo no alto e pouco material -> junta recurso primeiro, ataca depois
             if (tool(s) != null) {
                 double dyT = tl.getY() - zl.getY();
@@ -267,7 +297,11 @@ final class SmartHorde implements org.bukkit.event.Listener {
                 }
             }
             // FASE 2 (ATAQUE)
-            if (s.tick % 2 == 0 || !s.pathOk) s.pathOk = z.getPathfinder().moveTo(t, 1.15);
+            if (s.tick % 2 == 0 || !s.pathOk) {
+                double dyAbs = Math.abs(tl.getY() - zl.getY());
+                Location flank = opt("surround") && dist > 6 && dyAbs <= 2 ? flankGoal(z, t) : null;
+                s.pathOk = flank != null ? z.getPathfinder().moveTo(flank, 1.15) : z.getPathfinder().moveTo(t, 1.15);
+            }
             debug(z, s, dist, tl.getY() - zl.getY());
 
             // travado: quase nao andou e o alvo nao esta colado
@@ -280,13 +314,21 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
             act(z, s, zl, tl, dist);
         }
-        if (horde.isEmpty() && task != null) { task.cancel(); task = null; }
+        if (REC != null) REC.frame(horde, s -> new Object[]{s.role, s.invTotal, s.gathering ? 1 : 0, s.action});
+        if (horde.isEmpty() && task != null) { task.cancel(); task = null; stopRecording(); }
     }
 
     // ---------------------------------------------------------------- fase de coleta
 
     /** Quanto material a subida pede: blocos (dy + margem) ou, para o lenhador, madeira para escadas + bancada. */
     private int needFor(State s, double dy) {
+        if (opt("ramp") && s.target != null && ramps.containsKey(s.target)) {
+            Ramp r = ramps.get(s.target);
+            int builders = 0;
+            for (State o : horde.values()) if (s.target.equals(o.target) && tool(o) != null) builders++;
+            int share = (int) Math.ceil(r.remaining() / (double) Math.max(1, builders)) + 3;
+            return Math.min(capacity(), Math.min(r.remaining() + 2, Math.max(8, share))); // >= 8 por viagem: menos vai-e-volta
+        }
         if (s.role == LUMBER && !s.hand) {
             int ladders = (int) Math.ceil(dy);
             return Math.min(capacity(), (int) Math.ceil(ladders / 3.0) * 4 + 4); // ~4 tabuas por 3 escadas + bancada
@@ -437,8 +479,10 @@ final class SmartHorde implements org.bukkit.event.Listener {
                 }
                 Block below = front.getRelative(BlockFace.DOWN);
                 if (replaceable(below)) { // buraco na frente: tapa antes do degrau
+                    if (occupied(below, z)) { s.action = "lugar ocupado"; return; }
                     below.setType(takeBlock(s)); placeFx(below); s.lastPlace = now; s.action = "ponte"; return;
                 }
+                if (occupied(front, z)) { s.action = "lugar ocupado"; return; }
                 front.setType(takeBlock(s));
                 placeFx(front);
                 Location step = front.getLocation().add(0.5, 1.05, 0.5);
@@ -455,6 +499,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             Block ceiling = feet.getRelative(BlockFace.UP, 2);
             if (!ceiling.isPassable()) { // teto/saliencia: quebra primeiro
                 if (canBreak(s, ceiling)) progressBreak(z, s, ceiling);
+                else if (opt("escape-ceiling") && escapeCeiling(z, s, feet, tl)) s.action = "saindo de baixo do teto";
                 else if (z.isOnGround()) z.setVelocity(dir.clone().multiply(0.3).setY(0.42)); // nao quebravel: tenta sair de baixo
                 return;
             }
@@ -465,6 +510,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
                     else gather(z, s, feet, dir, true);
                     return;
                 }
+                if (occupied(feet, z)) { s.action = "lugar ocupado"; return; }
                 s.action = "pilar (" + s.invTotal + " blocos)";
                 Material m = takeBlock(s);
                 z.teleport(zl.clone().add(0, 1.05, 0));
@@ -490,6 +536,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
                 return;
             }
             s.action = "ponte";
+            if (occupied(frontBelow, z)) { s.action = "lugar ocupado"; return; }
             frontBelow.setType(takeBlock(s));
             placeFx(frontBelow);
             s.lastPlace = now;
@@ -497,6 +544,30 @@ final class SmartHorde implements org.bukkit.event.Listener {
         }
         // 4) empurrao + pulo para destravar
         if (z.isOnGround()) z.setVelocity(dir.multiply(0.22).setY(0.42));
+    }
+
+    /** Teto que nao quebra: vai para a celula vizinha (raio 3) com a coluna livre ate a altura do alvo. */
+    private boolean escapeCeiling(Zombie z, State s, Block feet, Location tl) {
+        int top = tl.getBlockY() + 1;
+        Block best = null; double bd = Double.MAX_VALUE;
+        for (int dx = -3; dx <= 3; dx++) for (int dz = -3; dz <= 3; dz++) {
+            if (dx == 0 && dz == 0) continue;
+            for (int dyb : new int[]{0, 1, -1, -2}) {
+                Block b = feet.getRelative(dx, dyb, dz);
+                if (!b.isPassable() || !b.getRelative(BlockFace.UP).isPassable() || !b.getRelative(BlockFace.DOWN).isSolid()) continue;
+                boolean clear = true;
+                for (int y = b.getY() + 2; y <= top && clear; y++) clear = b.getWorld().getBlockAt(b.getX(), y, b.getZ()).isPassable();
+                if (clear) {
+                    double d = Math.abs(dx) + Math.abs(dz) + 0.3 * Math.hypot(b.getX() - tl.getX(), b.getZ() - tl.getZ());
+                    if (d < bd) { bd = d; best = b; }
+                }
+                break;
+            }
+        }
+        if (best == null) return false;
+        z.getPathfinder().moveTo(best.getLocation().add(0.5, 0, 0.5), 1.15);
+        s.stuckTicks = 0;
+        return true;
     }
 
     private static boolean replaceable(Block b) {
@@ -557,6 +628,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
         java.util.Collection<ItemStack> drops = drops(s, b);
         Location c = b.getLocation().add(0.5, 0.5, 0.5);
         b.getWorld().spawnParticle(Particle.BLOCK, c, 25, 0.3, 0.3, 0.3, b.getBlockData());
+        if (REC != null) REC.block(b, Material.AIR);
         b.setType(Material.AIR);
         for (ItemStack d : drops) {
             int left = 0;
@@ -597,6 +669,20 @@ final class SmartHorde implements org.bukkit.event.Listener {
     private static BlockFace toFace(Vector dir) {
         return Math.abs(dir.getX()) > Math.abs(dir.getZ()) ? (dir.getX() > 0 ? BlockFace.EAST : BlockFace.WEST)
                 : (dir.getZ() > 0 ? BlockFace.SOUTH : BlockFace.NORTH);
+    }
+
+    private static Material planksOf(Material log) {
+        String n = log.name().replace("STRIPPED_", "").replace("_LOG", "").replace("_WOOD", "")
+                .replace("_STEM", "").replace("_HYPHAE", "");
+        Material m = Material.matchMaterial(n + "_PLANKS");
+        return m != null ? m : Material.OAK_PLANKS;
+    }
+
+    /** Vanilla: nao da para colocar bloco solido onde tem mob/jogador (fora o proprio zumbi que esta pulando). */
+    private static boolean occupied(Block b, Entity self) {
+        return !b.getWorld().getNearbyEntities(org.bukkit.util.BoundingBox.of(b),
+                e -> e != self && e instanceof org.bukkit.entity.LivingEntity le && !le.isDead()
+                        && !(e instanceof Player p && p.getGameMode() == GameMode.SPECTATOR)).isEmpty();
     }
 
     private static boolean isWood(Material m) { return Tag.PLANKS.isTagged(m) || Tag.LOGS.isTagged(m); }
@@ -789,7 +875,12 @@ final class SmartHorde implements org.bukkit.event.Listener {
         s.breaking = null;
     }
 
+    private static void stopRecording() {
+        if (REC != null) { REC.close(); REC = null; }
+    }
+
     private static void placeFx(Block b) {
+        if (REC != null) REC.block(b, b.getType());
         b.getWorld().playSound(b.getLocation(), Sound.BLOCK_STONE_PLACE, 1f, 0.9f);
     }
 
@@ -799,6 +890,147 @@ final class SmartHorde implements org.bukkit.event.Listener {
         for (State s : horde.values()) { roles[s.role]++; blocks += s.invTotal; }
         return alive() + " zumbis (mineradores " + roles[MINER] + ", cavadores " + roles[DIGGER] + ", lenhadores " + roles[LUMBER] + ", brutos " + roles[BRUTE] + ", tanques " + roles[TANK]
                 + ") carregando " + blocks + " blocos (limite " + capacity() + " cada)";
+    }
+
+    // ---------------------------------------------------------------- cerco
+
+    /** Ponto num anel de 4 blocos em volta do jogador, no angulo deste zumbi (fecha as rotas de fuga). */
+    private Location flankGoal(Zombie z, Player t) {
+        List<UUID> mates = new ArrayList<>();
+        for (var en : horde.entrySet()) if (t.getUniqueId().equals(en.getValue().target)) mates.add(en.getKey());
+        mates.sort(null);
+        int k = Math.max(0, mates.indexOf(z.getUniqueId()));
+        double ang = 2 * Math.PI * k / Math.max(1, mates.size());
+        Location l = t.getLocation();
+        int x = (int) Math.round(l.getX() + Math.cos(ang) * 4), zz = (int) Math.round(l.getZ() + Math.sin(ang) * 4);
+        Block top = l.getWorld().getHighestBlockAt(x, zz);
+        if (Math.abs(top.getY() + 1 - l.getY()) > 3) return null; // anel cai em buraco/morro: vai direto
+        return top.getLocation().add(0.5, 1, 0.5);
+    }
+
+    // ---------------------------------------------------------------- rampa da horda
+
+    /** Escadaria de 1 bloco de largura descendo do jogador numa direcao cardinal: degrau d na distancia d. */
+    private static final class Ramp {
+        final Block player; final BlockFace face; final int length; boolean broken;
+        Ramp(Block player, BlockFace face, int length) { this.player = player; this.face = face; this.length = length; }
+        Block step(int d) { return player.getRelative(face.getModX() * d, -d, face.getModZ() * d); }
+        Block stand(int d) {
+            Block b = step(d + 1);
+            if (d + 1 >= length) return b.getWorld().getBlockAt(b.getX(), groundY(b.getWorld(), b.getX(), b.getZ()) + 1, b.getZ());
+            return b.getRelative(BlockFace.UP);
+        }
+        int next() { for (int d = length - 1; d >= 1; d--) if (!step(d).getType().isSolid()) return d; return -1; }
+        int remaining() { int n = 0; for (int d = 1; d < length; d++) if (!step(d).getType().isSolid()) n++; return n; }
+
+        static Ramp make(Player p, List<Location> horde) {
+            Block pb = p.getLocation().getBlock();
+            double cx = pb.getX(), cz = pb.getZ();
+            if (!horde.isEmpty()) {
+                cx = 0; cz = 0;
+                for (Location l : horde) { cx += l.getX(); cz += l.getZ(); }
+                cx /= horde.size(); cz /= horde.size();
+            }
+            Ramp best = null; double bs = Double.MAX_VALUE;
+            for (BlockFace f : new BlockFace[]{BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST}) {
+                int length = -1, cost = 0;
+                for (int d = 1; d < 60; d++) {
+                    Block st = pb.getRelative(f.getModX() * d, -d, f.getModZ() * d);
+                    if (groundY(pb.getWorld(), st.getX(), st.getZ()) >= st.getY()) { length = d; break; }
+                    if (!st.getType().isSolid()) cost++;
+                    for (int hy = 1; hy <= 2; hy++) if (!st.getRelative(0, hy, 0).isPassable()) cost += 3;
+                }
+                if (length < 2) continue; // chao ja colado no jogador nessa direcao: rampa nao ajuda
+                double bx = pb.getX() + f.getModX() * length, bz = pb.getZ() + f.getModZ() * length;
+                double sc = cost + 0.15 * Math.hypot(bx - cx, bz - cz);
+                if (sc < bs) { bs = sc; best = new Ramp(pb, f, length); }
+            }
+            return best;
+        }
+    }
+
+    /** Chao de verdade da coluna: ignora folhas e troncos (getHighestBlockYAt conta copa de arvore). */
+    private static int groundY(World w, int x, int z) {
+        int y = w.getHighestBlockYAt(x, z, org.bukkit.HeightMap.MOTION_BLOCKING_NO_LEAVES);
+        while (y > w.getMinHeight()) {
+            Material m = w.getBlockAt(x, y, z).getType();
+            if (!Tag.LOGS.isTagged(m) && !Tag.LEAVES.isTagged(m) && m.isSolid()) break;
+            y--;
+        }
+        return y;
+    }
+
+    private Ramp rampFor(Player t) {
+        Ramp r = ramps.get(t.getUniqueId());
+        Block pb = t.getLocation().getBlock();
+        if (r != null && r.player.equals(pb) && !r.broken) return r;
+        List<Location> mine = new ArrayList<>();
+        for (var en : horde.entrySet()) {
+            if (!t.getUniqueId().equals(en.getValue().target)) continue;
+            Entity e = Bukkit.getEntity(en.getKey());
+            if (e != null) mine.add(e.getLocation());
+        }
+        r = Ramp.make(t, mine);
+        if (r == null) ramps.remove(t.getUniqueId()); else ramps.put(t.getUniqueId(), r);
+        return r;
+    }
+
+    private final Map<UUID, Long> rampLog = new HashMap<>();
+
+    /** Debug: por que a rampa nao rolou para este zumbi (1 linha a cada 5 s por zumbi). */
+    private boolean rampWhy(Zombie z, State s, String why) {
+        if (plugin.getConfig().getBoolean("horde.debug", false)) {
+            long now = System.currentTimeMillis();
+            Long last = rampLog.get(z.getUniqueId());
+            if (last == null || now - last > 5000) {
+                rampLog.put(z.getUniqueId(), now);
+                plugin.getLogger().info("[horda] rampa #" + z.getEntityId() % 10000 + ": " + why);
+            }
+        }
+        return false;
+    }
+
+    /** Um zumbi da horda trabalha na rampa: abre a cabeca do degrau, vai ate o degrau de baixo e coloca o proximo. */
+    private boolean rampTick(Zombie z, State s, Player t, long now) {
+        Ramp r = rampFor(t);
+        if (r == null) { return rampWhy(z, s, "sem direcao valida"); }
+        int d = r.next();
+        if (d < 0) { return rampWhy(z, s, "pronta " + r.face + " x" + r.length); } // o pathfinder sobe por ela
+        Block step = r.step(d), stand = r.stand(d);
+        Location zl = z.getLocation();
+        for (int hy = 1; hy <= 2; hy++) {
+            Block c = step.getRelative(0, hy, 0);
+            if (c.isPassable()) continue;
+            if (canBreak(s, c) && zl.distance(c.getLocation().add(0.5, 0.5, 0.5)) <= 4.5) {
+                progressBreak(z, s, c); s.action = "rampa: abrindo"; return true;
+            }
+            boolean anyone = false;
+            for (State o : horde.values()) if (canBreak(o, c)) { anyone = true; break; }
+            if (!anyone) { r.broken = true; return rampWhy(z, s, "bloqueio " + c.getType().name().toLowerCase()); }
+            z.getPathfinder().moveTo(stand.getLocation().add(0.5, 0, 0.5), 1.15);
+            s.action = "rampa: espera"; return true;
+        }
+        if (s.invTotal == 0) {
+            if (now > s.gatherCooldownUntil && z.isOnGround()) { startGather(s, needFor(s, 0), now); return true; }
+            return rampWhy(z, s, "sem blocos, degrau " + d + "/" + r.length + " " + r.face);
+        }
+        Block feet = zl.getBlock();
+        boolean atStand = feet.equals(stand) || (feet.getY() == stand.getY()
+                && Math.max(Math.abs(feet.getX() - stand.getX()), Math.abs(feet.getZ() - stand.getZ())) <= 1
+                && Math.max(Math.abs(feet.getX() - step.getX()), Math.abs(feet.getZ() - step.getZ())) <= 2);
+        if (atStand) {
+            if (now - s.lastPlace < 650) return true;
+            if (occupied(step, z)) { s.action = "lugar ocupado"; return true; }
+            step.setType(takeBlock(s));
+            placeFx(step);
+            s.lastPlace = now;
+            z.teleport(step.getLocation().add(0.5, 1.05, 0.5).setDirection(t.getLocation().toVector().subtract(zl.toVector())));
+            s.action = "rampa da horda (" + r.remaining() + " faltam)";
+            return true;
+        }
+        z.getPathfinder().moveTo(stand.getLocation().add(0.5, 0, 0.5), 1.15);
+        s.action = "indo pra rampa";
+        return true;
     }
 
     Component countLine() { return Component.text(alive() + " zumbis restantes"); }
