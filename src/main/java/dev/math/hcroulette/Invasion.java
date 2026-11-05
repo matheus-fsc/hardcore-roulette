@@ -86,6 +86,9 @@ public final class Invasion implements Listener {
     private int spawned;
     private long startedAt;
     private BukkitTask watchdog;
+    private final SmartHorde horde;
+    private boolean forced;    // iniciada por comando (ignora "recua ao amanhecer")
+    private boolean autoRoll;  // true so durante o sorteio automatico
     private BukkitTask flareTask;
     private UUID targetId;
     private int flareTicks;
@@ -112,7 +115,7 @@ public final class Invasion implements Listener {
                         .append(",\"z\":").append(String.format(Locale.ROOT, "%.2f", l.getZ())).append('}');
             }
             sb.append("]}");
-            sendController("/flare", sb.toString());
+            if (active != Faction.ZUMBIS) sendController("/flare", sb.toString()); // horda zumbi roda no proprio servidor
             if (++flareTicks % 15 == 1) {
                 Player t = targetId == null ? null : Bukkit.getPlayer(targetId);
                 if (t != null && !isBot(t)) {
@@ -134,6 +137,7 @@ public final class Invasion implements Listener {
 
     public Invasion(HardcoreRoulette plugin) {
         this.plugin = plugin;
+        this.horde = new SmartHorde(plugin);
         var c = plugin.getConfig();
         c.addDefault("invasion.enabled", true);
         c.addDefault("invasion.controller-url", "http://127.0.0.1:8765");
@@ -315,7 +319,10 @@ public final class Invasion implements Listener {
             }
         } else return;
         lastRollKey = key;
-        if (roll != null) start(roll, null, Bukkit.getConsoleSender());
+        if (roll != null) {
+            autoRoll = true;
+            try { start(roll, null, Bukkit.getConsoleSender()); } finally { autoRoll = false; }
+        }
     }
 
     private void checkEnd() {
@@ -323,12 +330,14 @@ public final class Invasion implements Listener {
         World w = plugin.currentWorld();
         long age = System.currentTimeMillis() - startedAt;
         boolean allSpawned = spawned >= expected || age > 90_000;
-        if (allSpawned && bots.isEmpty() && age > 20_000) {
+        boolean empty = active == Faction.ZUMBIS ? horde.alive() == 0 : bots.isEmpty();
+        if (allSpawned && empty && age > 20_000) {
             finish(Component.text("✔ Invasao repelida! " + active.title.replaceAll("^\\S+ ", "") + " derrotados.", NamedTextColor.GREEN, TextDecoration.BOLD));
             return;
         }
-        if (active == Faction.ZUMBIS && w != null && (w.getTime() >= 23300 || w.getTime() < 12000) && age > 60_000) {
-            finish(Component.text("☀ Amanheceu: a horda recua para as sombras.", NamedTextColor.YELLOW));
+        boolean day = w != null && (w.getTime() >= 23300 || w.getTime() < 12000);
+        if (active == Faction.ZUMBIS && ((!forced && day && age > 60_000) || age > 8 * 60_000)) {
+            finish(Component.text(day ? "☀ Amanheceu: a horda recua para as sombras." : "A horda se dispersa na escuridao.", NamedTextColor.YELLOW));
         } else if (active == Faction.PIRATAS && age > 6 * 60_000) {
             finish(Component.text("⛵ Os piratas voltaram para o mar.", NamedTextColor.GOLD));
         } else if (active == Faction.GUILDA && age > 8 * 60_000) {
@@ -347,12 +356,15 @@ public final class Invasion implements Listener {
         World w = plugin.currentWorld();
         List<Player> targets = w == null ? List.of() : realPlayers(w);
         if (targets.isEmpty()) { who.sendMessage(Component.text("Ninguem no overworld do mundo atual para invadir.", NamedTextColor.RED)); return; }
+        long day = w.getFullTime() / 24000L + 1;
+        forced = !autoRoll;
         int n = forcedCount != null ? forcedCount : switch (f) {
-            case ZUMBIS -> Math.min(12, Math.max(4, targets.size() * 3 + 2));
+            // horda cresce com os jogadores e com os dias sobrevividos
+            case ZUMBIS -> (int) Math.min(25, Math.max(4, targets.size() * 3 + 2 + day / 2));
             case PIRATAS -> Math.min(8, Math.max(3, targets.size() * 2 + 2));
             case GUILDA -> Math.min(6, Math.max(3, targets.size() * 2 + 1));
         };
-        n = Math.max(1, Math.min(n, 20));
+        n = Math.max(1, Math.min(n, f == Faction.ZUMBIS ? 40 : 20));
         final int count = n;
         active = f; // reserva enquanto faz o reconhecimento
         startedAt = System.currentTimeMillis();
@@ -366,37 +378,49 @@ public final class Invasion implements Listener {
                 return;
             }
             slots.clear();
-            for (int i = 0; i < count; i++) slots.put(f.prefix + (i + 1), found.get(i % found.size()));
             expected = count;
             spawned = 0;
             startedAt = System.currentTimeMillis();
+            if (f == Faction.ZUMBIS) { // horda com mobs do servidor (sem bots/controlador)
+                horde.spawn(w, found, count, target);
+                spawned = count;
+                targetId = target.getUniqueId();
+                startFlares();
+                announce(f, count, target, found.get(0));
+                return;
+            }
+            for (int i = 0; i < count; i++) slots.put(f.prefix + (i + 1), found.get(i % found.size()));
             sendController("/start", "{\"faction\":\"" + f.id() + "\",\"count\":" + count + "}").thenAccept(ok -> Bukkit.getScheduler().runTask(plugin, () -> {
                 if (!ok) {
                     active = null; slots.clear();
                     who.sendMessage(Component.text("Controlador de bots offline (VPS). Invasao cancelada.", NamedTextColor.RED));
                     return;
                 }
-                Location c = found.get(0);
                 targetId = target.getUniqueId();
                 startFlares();
-                Title t = Title.title(Component.text(f.title, f.color, TextDecoration.BOLD), Component.text(f.subtitle, NamedTextColor.GRAY),
-                        Title.Times.times(Duration.ofMillis(300), Duration.ofSeconds(4), Duration.ofSeconds(1)));
-                for (Player p : Bukkit.getOnlinePlayers()) {
-                    if (isBot(p)) continue;
-                    p.showTitle(t);
-                    p.playSound(p.getLocation(), f == Faction.ZUMBIS ? Sound.ENTITY_ZOMBIE_AMBIENT : Sound.EVENT_RAID_HORN, 1f, 0.8f);
-                }
-                Bukkit.broadcast(Component.text(f.title + " ", f.color, TextDecoration.BOLD)
-                        .append(Component.text(count + " inimigos indo atras de " + target.getName() + ", vindo do " + direction(target.getLocation(), c) + "!", NamedTextColor.WHITE).decoration(TextDecoration.BOLD, false)));
-                plugin.getLogger().info("Invasao " + f.id() + " x" + count + " em " + c.getBlockX() + "," + c.getBlockY() + "," + c.getBlockZ());
+                announce(f, count, target, found.get(0));
             }));
         }));
+    }
+
+    private void announce(Faction f, int count, Player target, Location c) {
+        Title t = Title.title(Component.text(f.title, f.color, TextDecoration.BOLD), Component.text(f.subtitle, NamedTextColor.GRAY),
+                Title.Times.times(Duration.ofMillis(300), Duration.ofSeconds(4), Duration.ofSeconds(1)));
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (isBot(p)) continue;
+            p.showTitle(t);
+            p.playSound(p.getLocation(), f == Faction.ZUMBIS ? Sound.ENTITY_ZOMBIE_AMBIENT : Sound.EVENT_RAID_HORN, 1f, 0.8f);
+        }
+        Bukkit.broadcast(Component.text(f.title + " ", f.color, TextDecoration.BOLD)
+                .append(Component.text(count + " inimigos indo atras de " + target.getName() + ", vindo do " + direction(target.getLocation(), c) + "!", NamedTextColor.WHITE).decoration(TextDecoration.BOLD, false)));
+        plugin.getLogger().info("Invasao " + f.id() + " x" + count + " em " + c.getBlockX() + "," + c.getBlockY() + "," + c.getBlockZ());
     }
 
     public void finish(Component msg) {
         if (active == null) return;
         Bukkit.broadcast(msg);
         stopFlares();
+        horde.despawn(true);
         sendController("/stop", "{}");
         active = null;
         slots.clear();
@@ -407,6 +431,7 @@ public final class Invasion implements Listener {
 
     /** Reset de mundo: some com todo mundo sem mensagem. */
     public void abortSilently() {
+        horde.despawn(false);
         if (active == null && bots.isEmpty()) return;
         stopFlares();
         sendController("/stop", "{}");
@@ -416,6 +441,7 @@ public final class Invasion implements Listener {
     }
 
     public String status() {
+        if (active == Faction.ZUMBIS) return "zumbis | " + horde.describe();
         return active == null ? "nenhuma invasao ativa" : active.id() + " | bots vivos " + bots.size() + "/" + expected;
     }
 
@@ -540,6 +566,19 @@ public final class Invasion implements Listener {
                 int[] yy = {0};
                 Double s = cave ? evaluateCave(w, c[0], c[1], center, players, yy) : evaluate(f, w, c[0], c[1], center, players);
                 if (s != null && s < bestScore) { bestScore = s; best = c; bestY = cave ? yy[0] : surfaceY(w, c[0], c[1]); }
+            }
+            if (best == null && f == Faction.ZUMBIS) {
+                // zumbis cavam/constroem: aceita qualquer chao firme longe dos jogadores (sem exigir rota limpa)
+                for (int[] c : cands) {
+                    if (!w.isChunkLoaded(c[0] >> 4, c[1] >> 4)) continue;
+                    int y = surfaceY(w, c[0], c[1]);
+                    if (!standable(w, c[0], y, c[1])) continue;
+                    boolean close = false;
+                    for (Player p : players) if (p.getWorld() == w && p.getLocation().distanceSquared(new Location(w, c[0], y, c[1])) < 16 * 16) close = true;
+                    if (close) continue;
+                    best = c; bestY = y; bestScore = 99;
+                    break;
+                }
             }
             if (best == null) { out.complete(null); return; }
             int bx = best[0], bz = best[1], by = bestY;
