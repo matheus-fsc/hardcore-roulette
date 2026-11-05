@@ -986,6 +986,8 @@ final class SmartHorde implements org.bukkit.event.Listener {
         final Block player; final List<Block> steps; final Block entry; final Block waitCenter; final String desc;
         boolean broken;
         UUID worker; // 1 construtor por vez na rampa (1 de largura: mais de um empurra e cai)
+        UUID carrier; long carrierSince; // quem esta levando blocos ate o construtor
+        long workerEmptySince;
         Ramp(Block player, List<Block> steps, Block entry, Block waitCenter, String desc) {
             this.player = player; this.steps = steps; this.entry = entry; this.waitCenter = waitCenter; this.desc = desc;
         }
@@ -1175,8 +1177,12 @@ final class SmartHorde implements org.bukkit.event.Listener {
         if (s.invTotal == 0 && onRamp) { // acabou o material la em cima: fica parado (descer cruza com o proximo e cai)
             z.getPathfinder().stopPathfinding();
             z.setVelocity(new Vector(0, Math.min(0, z.getVelocity().getY()), 0));
-            s.action = "parado na rampa (sem blocos)";
-            if (z.getUniqueId().equals(r.worker)) r.worker = null;
+            if (z.getUniqueId().equals(r.worker)) {
+                if (r.workerEmptySince == 0) r.workerEmptySince = now;
+                // ninguem trouxe bloco em 25 s: larga a vez (outro sobe com material)
+                if (now - r.workerEmptySince > 25_000) { r.worker = null; r.workerEmptySince = 0; }
+                s.action = "construtor esperando entrega";
+            } else s.action = "parado na rampa (sem blocos)";
             return true;
         }
         if (s.invTotal == 0) {
@@ -1186,7 +1192,10 @@ final class SmartHorde implements org.bukkit.event.Listener {
         // escolhe o construtor da vez: quem tem bloco e esta mais perto do degrau
         State ws = r.worker == null ? null : horde.get(r.worker);
         Entity we = r.worker == null ? null : Bukkit.getEntity(r.worker);
-        if (ws == null || we == null || we.isDead() || ws.invTotal == 0 || ws.gathering) {
+        boolean frontEmpty = ws != null && we != null && !we.isDead() && ws.invTotal == 0
+                && we.getLocation().getBlockY() > groundAtWait + 1 && r.workerEmptySince > 0;
+        if (ws != null && ws.invTotal > 0) r.workerEmptySince = 0;
+        if (!frontEmpty && (ws == null || we == null || we.isDead() || ws.invTotal == 0 || ws.gathering)) {
             r.worker = null;
             double bd = Double.MAX_VALUE;
             for (var en : horde.entrySet()) {
@@ -1198,12 +1207,58 @@ final class SmartHorde implements org.bukkit.event.Listener {
                 if (dd < bd) { bd = dd; r.worker = en.getKey(); }
             }
         }
+        if (!z.getUniqueId().equals(r.worker) && r.worker != null) {
+            State wst = horde.get(r.worker);
+            Entity wen = Bukkit.getEntity(r.worker);
+            boolean needs = wst != null && wen != null && wst.invTotal < 4;
+            State cst = r.carrier == null ? null : horde.get(r.carrier);
+            if (cst == null || cst.invTotal == 0 || now - r.carrierSince > 60_000) r.carrier = null;
+            if (needs && r.carrier == null) { // escolhe quem leva: mais blocos e mais perto da rampa
+                double bd = Double.MAX_VALUE;
+                for (var en : horde.entrySet()) {
+                    State o = en.getValue();
+                    if (en.getKey().equals(r.worker) || o.invTotal < 4 || o.gathering || !t.getUniqueId().equals(o.target)) continue;
+                    Entity oe = Bukkit.getEntity(en.getKey());
+                    if (oe == null || oe.getWorld() != r.entry.getWorld()) continue;
+                    double dd = oe.getLocation().distanceSquared(r.entry.getLocation()) - o.invTotal * 6;
+                    if (dd < bd) { bd = dd; r.carrier = en.getKey(); }
+                }
+                if (r.carrier != null) r.carrierSince = now;
+            }
+            if (z.getUniqueId().equals(r.carrier) && wen != null && wst != null) {
+                Location wl = wen.getLocation();
+                if (zl.getWorld() == wl.getWorld() && zl.distance(wl) <= 2.5) { // entrega
+                    int moved = 0;
+                    for (var it = s.inv.entrySet().iterator(); it.hasNext(); ) {
+                        var e = it.next();
+                        int room = capacity() - wst.invTotal;
+                        if (room <= 0) break;
+                        int k = Math.min(room, e.getValue());
+                        wst.inv.merge(e.getKey(), k, Integer::sum);
+                        wst.invTotal += k; s.invTotal -= k; moved += k;
+                        if (k == e.getValue()) it.remove(); else e.setValue(e.getValue() - k);
+                    }
+                    r.carrier = null;
+                    r.workerEmptySince = 0;
+                    z.swingMainHand();
+                    s.action = "entregou " + moved + " blocos ao construtor";
+                    return true;
+                }
+                z.getPathfinder().moveTo(wl, 1.15);
+                s.action = "levando blocos ao construtor";
+                return true;
+            }
+        }
         if (!z.getUniqueId().equals(r.worker)) { // espera no chao, em formacao (cada um no seu ponto do anel)
             List<UUID> mates = new ArrayList<>();
             for (var en : horde.entrySet()) if (t.getUniqueId().equals(en.getValue().target)) mates.add(en.getKey());
             mates.sort(null);
             int k = Math.max(0, mates.indexOf(z.getUniqueId()));
             double ang = 2 * Math.PI * k / Math.max(1, mates.size());
+            if (s.invTotal < capacity() / 2 && now > s.gatherCooldownUntil && z.isOnGround() && !onRamp) {
+                startGather(s, capacity(), now); // abastece o estoque da horda enquanto o construtor trabalha
+                return true;
+            }
             Block far = r.waitCenter;
             int wx = (int) Math.round(far.getX() + Math.cos(ang) * 3), wz = (int) Math.round(far.getZ() + Math.sin(ang) * 3);
             Location spot = new Location(far.getWorld(), wx + 0.5, groundY(far.getWorld(), wx, wz) + 1, wz + 0.5);
