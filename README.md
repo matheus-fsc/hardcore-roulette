@@ -24,7 +24,7 @@ Plugin Paper para **hardcore em grupo**: quando alguém morre, o mundo reseta pa
 
 ### Invasões de facções
 Inimigos controlados por bots externos ([minecraft-raiders](https://github.com/matheus-fsc/minecraft-raiders)):
-- **Zumbis**: mobs do próprio servidor (sem bots), à noite, com rastreio de até 128 blocos. Papéis com regra de ferramenta do vanilla: **minerador** (picareta de madeira) quebra e coloca pedra e o que a picareta de madeira minera; **lenhador** (machado de madeira) quebra e coloca blocos de madeira; brutamontes e tanque só perseguem e lutam. Cada um tem inventário com limite (`horde.block-capacity`), constrói pilares e pontes só com o que carrega, junta material quebrando blocos em volta quando acaba e solta o inventário ao morrer.
+- **Zumbis**: mobs do próprio servidor (sem bots), à noite, com rastreio de até 128 blocos. Papéis com regra de ferramenta do vanilla: **minerador** (picareta de madeira) quebra e coloca pedra e o que a picareta de madeira minera; **cavador** (pá de madeira) quebra terra, grama, areia, cascalho e argila e coloca terra; **lenhador** (machado de madeira) quebra e coloca blocos de madeira; brutamontes e tanque só perseguem e lutam. Cada um tem inventário com limite (`horde.block-capacity`), constrói pilares e pontes só com o que carrega, junta material quebrando blocos em volta quando acaba e solta o inventário ao morrer.
 - **Piratas**: de dia, saqueiam baús e fogem.
 - **Guilda inimiga**: atravessa o mapa minerando; neutra até ser provocada.
 
@@ -46,7 +46,7 @@ O plugin faz o **reconhecimento do terreno** antes de spawnar (chão firme, céu
 | `/hcstatus` | todos | Estado da run |
 | `/hcmodo <votacao\|lobotomia\|party>` | op | Troca o modo |
 | `/hcreset` | op | Força um reset/votação |
-| `/invasao <zumbis\|piratas\|guilda\|parar\|status> [qtd] [alvo]` | op | Invasões |
+| `/invasao <zumbis|piratas|guilda|parar|status> [qtd] [alvo] [construtores]` | op | Invasões (`construtores` = onda só de minerador, cavador e lenhador) |\|piratas\|guilda\|parar\|status> [qtd] [alvo]` | op | Invasões |
 | `/migrar [min\|cancelar]` | op | Migração para o fallback |
 | `/bwhitelist <add\|remove> <gamertag>` | op | Whitelist Bedrock |
 
@@ -61,7 +61,7 @@ invasion:
   enabled: true
   controller-url: http://127.0.0.1:8765
   token: <gerado automaticamente>   # o mesmo RAID_TOKEN do minecraft-raiders
-  chance: { zumbis: 0.35, piratas: 0.12, guilda: 0.10 }
+  chance: { zumbis: 0.35, | `/invasao <zumbis|piratas|guilda|parar|status> [qtd] [alvo] [construtores]` | op | Invasões (`construtores` = onda só de minerador, cavador e lenhador) |: 0.12, guilda: 0.10 }
   min-day: 1
 horde:
   block-capacity: 32     # blocos que cada zumbi minerador/lenhador carrega

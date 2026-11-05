@@ -1201,7 +1201,8 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
                     if (args.length > 1) try { n = Integer.parseInt(args[1]); } catch (NumberFormatException ignored) { }
                     Player target = args.length > 2 ? Bukkit.getPlayerExact(args[2]) : null;
                     if (args.length > 2 && target == null) { sender.sendMessage(Component.text("Jogador " + args[2] + " nao esta online.", NamedTextColor.RED)); return true; }
-                    invasion.start(f, n, sender, target);
+                    boolean builders = args.length > 3 && args[3].equalsIgnoreCase("construtores");
+                    invasion.start(f, n, sender, target, builders);
                 }
             }
             case "hcreset" -> startVote(Component.text("Reset forcado por " + sender.getName(), NamedTextColor.RED));

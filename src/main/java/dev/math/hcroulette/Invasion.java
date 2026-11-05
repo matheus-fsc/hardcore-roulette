@@ -352,6 +352,10 @@ public final class Invasion implements Listener {
     }
 
     public void start(Faction f, Integer forcedCount, org.bukkit.command.CommandSender who, Player forcedTarget) {
+        start(f, forcedCount, who, forcedTarget, false);
+    }
+
+    public void start(Faction f, Integer forcedCount, org.bukkit.command.CommandSender who, Player forcedTarget, boolean buildersOnly) {
         if (active != null) { who.sendMessage(Component.text("Ja tem uma invasao acontecendo.", NamedTextColor.RED)); return; }
         World w = plugin.currentWorld();
         List<Player> targets = w == null ? List.of() : realPlayers(w);
@@ -382,7 +386,7 @@ public final class Invasion implements Listener {
             spawned = 0;
             startedAt = System.currentTimeMillis();
             if (f == Faction.ZUMBIS) { // horda com mobs do servidor (sem bots/controlador)
-                horde.spawn(w, found, count, target);
+                horde.spawn(w, found, count, target, buildersOnly);
                 spawned = count;
                 targetId = target.getUniqueId();
                 startFlares();

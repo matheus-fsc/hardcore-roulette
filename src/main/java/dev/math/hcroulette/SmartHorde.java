@@ -47,7 +47,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             Material.REPEATING_COMMAND_BLOCK, Material.STRUCTURE_BLOCK, Material.JIGSAW, Material.LIGHT);
     private static final class State {
         UUID target;
-        int role;            // 0 minerador (picareta), 1 lenhador (machado), 2 brutamontes, 3 tanque
+        int role;            // 0 minerador (picareta), 1 lenhador (machado), 2 brutamontes, 3 tanque, 4 cavador (pa)
         Location lastPos;
         int stuckTicks;
         boolean pathOk = true;
@@ -111,12 +111,16 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
     // ---------------------------------------------------------------- spawn / remover
 
-    void spawn(World w, List<Location> spots, int count, Player target) {
+    void spawn(World w, List<Location> spots, int count, Player target) { spawn(w, spots, count, target, false); }
+
+    /** buildersOnly: so minerador/cavador/lenhador (onda de construtores). */
+    void spawn(World w, List<Location> spots, int count, Player target, boolean buildersOnly) {
+        int[] cycle = buildersOnly ? new int[]{MINER, DIGGER, LUMBER} : new int[]{MINER, DIGGER, LUMBER, BRUTE, TANK};
         for (int i = 0; i < count; i++) {
             Location base = spots.get(i % spots.size()).clone();
             Biome b = w.getBiome(base);
             Class<? extends Zombie> type = b.getKey().getKey().contains("desert") || b.getKey().getKey().contains("badlands") ? Husk.class : Zombie.class;
-            final int role = i % 4;
+            final int role = cycle[i % cycle.length];
             Zombie z = w.spawn(base, type, zz -> setup(zz, role, target));
             State s = new State();
             s.role = role;
@@ -125,6 +129,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             // so minerador e lenhador mexem em blocos; comecam com um pouco do proprio material
             if (role == MINER) for (int k = 0; k < 8; k++) addBlock(s, Material.COBBLESTONE);
             if (role == LUMBER) for (int k = 0; k < 8; k++) addBlock(s, Material.OAK_PLANKS);
+            if (role == DIGGER) for (int k = 0; k < 8; k++) addBlock(s, Material.DIRT);
             horde.put(z.getUniqueId(), s);
             w.spawnParticle(Particle.LARGE_SMOKE, base.clone().add(0, 1, 0), 12, 0.3, 0.6, 0.3, 0.01);
         }
@@ -147,6 +152,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             switch (role) {
                 case MINER -> eq.setItemInMainHand(new ItemStack(Material.WOODEN_PICKAXE));
                 case LUMBER -> eq.setItemInMainHand(new ItemStack(Material.WOODEN_AXE));
+                case DIGGER -> eq.setItemInMainHand(new ItemStack(Material.WOODEN_SHOVEL));
                 case 2 -> eq.setItemInMainHand(new ItemStack(Material.STONE_SWORD));
                 default -> eq.setHelmet(new ItemStack(Material.CHAINMAIL_HELMET));
             }
@@ -284,13 +290,14 @@ final class SmartHorde implements org.bukkit.event.Listener {
         return b.isPassable() || b.isLiquid() || m == Material.SHORT_GRASS || m == Material.TALL_GRASS || m == Material.SNOW;
     }
 
-    static final int MINER = 0, LUMBER = 1, BRUTE = 2, TANK = 3;
+    static final int MINER = 0, LUMBER = 1, BRUTE = 2, TANK = 3, DIGGER = 4;
 
     /** Ferramenta do papel (define o que quebra e o drop). null = nao mexe em blocos. */
     private static ItemStack tool(State s) {
         return switch (s.role) {
             case MINER -> new ItemStack(Material.WOODEN_PICKAXE);
             case LUMBER -> new ItemStack(Material.WOODEN_AXE);
+            case DIGGER -> new ItemStack(Material.WOODEN_SHOVEL);
             default -> null;
         };
     }
@@ -306,6 +313,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             case MINER -> Tag.MINEABLE_PICKAXE.isTagged(m) && !Tag.NEEDS_STONE_TOOL.isTagged(m)
                     && !Tag.NEEDS_IRON_TOOL.isTagged(m) && !Tag.NEEDS_DIAMOND_TOOL.isTagged(m);
             case LUMBER -> Tag.MINEABLE_AXE.isTagged(m);
+            case DIGGER -> Tag.MINEABLE_SHOVEL.isTagged(m); // terra, grama, areia, cascalho, argila, neve
             default -> false;
         };
     }
@@ -389,10 +397,10 @@ final class SmartHorde implements org.bukkit.event.Listener {
     }
 
     String describe() {
-        int[] roles = new int[4];
+        int[] roles = new int[5];
         int blocks = 0;
         for (State s : horde.values()) { roles[s.role]++; blocks += s.invTotal; }
-        return alive() + " zumbis (mineradores " + roles[MINER] + ", lenhadores " + roles[LUMBER] + ", brutos " + roles[BRUTE] + ", tanques " + roles[TANK]
+        return alive() + " zumbis (mineradores " + roles[MINER] + ", cavadores " + roles[DIGGER] + ", lenhadores " + roles[LUMBER] + ", brutos " + roles[BRUTE] + ", tanques " + roles[TANK]
                 + ") carregando " + blocks + " blocos (limite " + capacity() + " cada)";
     }
 
