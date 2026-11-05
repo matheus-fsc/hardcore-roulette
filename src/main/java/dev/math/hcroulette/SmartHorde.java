@@ -62,6 +62,8 @@ final class SmartHorde implements org.bukkit.event.Listener {
         boolean hasTable;    // bancada guardada no inventario
         Block table;         // bancada colocada no chao
         long craftUntil;     // usando a bancada ate
+        Block tree;          // tora que o lenhador esta indo cortar
+        long lastTreeScan;
     }
 
     private int capacity() { return Math.max(0, plugin.getConfig().getInt("horde.block-capacity", 32)); }
@@ -217,6 +219,11 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
             Location zl = z.getLocation(), tl = t.getLocation();
             double dist = zl.distance(tl);
+            // lenhador indo cortar arvore: nao recalcula caminho ate o jogador enquanto isso
+            if (s.role == LUMBER && s.tree != null) {
+                if (Tag.LOGS.isTagged(s.tree.getType()) && s.invTotal < capacity()) { goToTree(z, s, zl.getBlock()); continue; }
+                s.tree = null;
+            }
             if (s.tick % 2 == 0 || !s.pathOk) s.pathOk = z.getPathfinder().moveTo(t, 1.15);
 
             // travado: quase nao andou e o alvo nao esta colado
@@ -450,7 +457,10 @@ final class SmartHorde implements org.bukkit.event.Listener {
             return false;
         }
         int cost = 4 + (s.hasTable ? 0 : 4); // um lote de escadas (+ a bancada se ainda nao tiver)
-        if (woodUnits(s) < cost) return gather(z, s, feet, toVec(towardWall), false); // junta madeira (so lenhador quebra)
+        if (woodUnits(s) < cost) {
+            if (gather(z, s, feet, toVec(towardWall), false)) return true; // madeira ao alcance
+            return goToTree(z, s, feet);                                    // senao, vai ate a arvore mais perto
+        }
         Block spot = null;
         for (BlockFace f : new BlockFace[]{towardWall.getOppositeFace(), BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST}) {
             Block b = feet.getRelative(f);
@@ -468,6 +478,26 @@ final class SmartHorde implements org.bukkit.event.Listener {
     }
 
     private static Vector toVec(BlockFace f) { return new Vector(f.getModX(), 0, f.getModZ()); }
+
+    /** Lenhador sem madeira por perto: anda ate a tora mais proxima (raio 12) e corta. Busca cacheada. */
+    private boolean goToTree(Zombie z, State s, Block feet) {
+        if (s.tree != null && !Tag.LOGS.isTagged(s.tree.getType())) s.tree = null; // ja cortada
+        if (s.tree == null && System.currentTimeMillis() - s.lastTreeScan > 1500) {
+            s.lastTreeScan = System.currentTimeMillis();
+            double bd = Double.MAX_VALUE;
+            for (int dx = -12; dx <= 12; dx++) for (int dz = -12; dz <= 12; dz++) for (int dyb = -3; dyb <= 6; dyb++) {
+                Block b = feet.getRelative(dx, dyb, dz);
+                if (!Tag.LOGS.isTagged(b.getType())) continue;
+                double d = dx * dx + dz * dz + dyb * dyb * 2;
+                if (d < bd) { bd = d; s.tree = b; }
+            }
+        }
+        if (s.tree == null) return false;
+        Location tl = s.tree.getLocation().add(0.5, 0, 0.5);
+        if (z.getLocation().distanceSquared(tl) <= 3.2 * 3.2) { progressBreak(z, s, s.tree); return true; }
+        z.getPathfinder().moveTo(tl, 1.1);
+        return true;
+    }
 
     private static boolean placeLadder(Block at, BlockFace towardWall) {
         Block wall = at.getRelative(towardWall);
