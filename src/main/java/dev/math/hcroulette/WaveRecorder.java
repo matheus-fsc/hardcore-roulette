@@ -71,7 +71,7 @@ final class WaveRecorder implements Listener {
         try {
             writeTerrain();
             out = new BufferedWriter(new OutputStreamWriter(new GZIPOutputStream(
-                    new FileOutputStream(new File(dir, "frames.jsonl.gz"))), StandardCharsets.UTF_8));
+                    new FileOutputStream(new File(dir, "frames.jsonl.gz")), true), StandardCharsets.UTF_8));
             writeMeta(faction, center);
         } catch (IOException e) {
             plugin.getLogger().warning("gravador da onda: " + e.getMessage());
@@ -189,7 +189,10 @@ final class WaveRecorder implements Listener {
             first = false;
             sb.append("[\"").append(p.getName()).append("\",").append(r2(l.getX())).append(',').append(r2(l.getY())).append(',')
                     .append(r2(l.getZ())).append(',').append(Math.round(p.getHealth() * 10) / 10.0).append(',')
-                    .append(Math.round(l.getYaw())).append(",\"").append(p.getGameMode().name().toLowerCase()).append("\"]");
+                    .append(Math.round(l.getYaw())).append(",\"").append(p.getGameMode().name().toLowerCase()).append("\",")
+                    .append(p.isSprinting() ? 1 : 0).append(',').append(p.isSneaking() ? 1 : 0).append(',')
+                    .append(r2(p.getVelocity().getY())).append(",\"").append(p.getInventory().getItemInMainHand().getType().name().toLowerCase())
+                    .append("\",").append(p.isOnGround() ? 1 : 0).append(']');
         }
         sb.append("],\"b\":[").append(String.join(",", blocks)).append("],\"e\":[").append(String.join(",", events)).append("]}\n");
         blocks.clear();
