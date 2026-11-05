@@ -64,6 +64,15 @@ final class SmartHorde implements org.bukkit.event.Listener {
         long craftUntil;     // usando a bancada ate
         Block tree;          // tora que o lenhador esta indo cortar
         long lastTreeScan;
+        // fase de coleta
+        boolean gathering;
+        int need;            // material alvo (blocos; para lenhador, unidades de tabua)
+        long gatherStart, gatherCooldownUntil, lastScan, resourceSince;
+        Block resource;
+        final java.util.Set<Block> bad = new java.util.HashSet<>(); // recursos que nao conseguiu alcancar
+        String action = "-";
+        long lastDebug;
+        boolean assigned;    // ja passou pela distribuicao de alvos
     }
 
     private int capacity() { return Math.max(0, plugin.getConfig().getInt("horde.block-capacity", 32)); }
@@ -101,6 +110,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
         this.key = new NamespacedKey(plugin, "horde");
         Bukkit.getPluginManager().registerEvents(this, plugin);
         plugin.getConfig().addDefault("horde.block-capacity", 32);
+        plugin.getConfig().addDefault("horde.debug", false);
         // restos de uma horda anterior (crash/restart) somem ao carregar
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             for (World w : Bukkit.getWorlds()) for (Zombie z : w.getEntitiesByClass(Zombie.class))
@@ -186,16 +196,32 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
     // ---------------------------------------------------------------- cerebro (2x por segundo)
 
+    /**
+     * Distribui a horda entre os jogadores proximos: cada zumbi vai no jogador com MENOS zumbis em cima,
+     * ponderado pela distancia (nao foca todo mundo em 1 enquanto o outro limpa). Rebalanceia a cada ~10s.
+     */
     private Player pickTarget(Zombie z, State s) {
         Player t = s.target == null ? null : Bukkit.getPlayer(s.target);
-        if (valid(t, z)) return t;
-        Player best = null; double bd = Double.MAX_VALUE;
+        boolean rebalance = s.tick % 20 == 0 || !s.assigned;
+        if (valid(t, z) && !rebalance) return t;
+        Map<UUID, Integer> load = new HashMap<>();
+        for (var en : horde.entrySet()) {
+            if (en.getValue() == s || en.getValue().target == null) continue;
+            load.merge(en.getValue().target, 1, Integer::sum);
+        }
+        Player best = null; double bestScore = Double.MAX_VALUE;
         for (Player p : z.getWorld().getPlayers()) {
             if (!valid(p, z)) continue;
-            double d = p.getLocation().distanceSquared(z.getLocation());
-            if (d < bd) { bd = d; best = p; }
+            double d = p.getLocation().distance(z.getLocation());
+            if (d > 96) continue; // so jogadores proximos
+            double score = load.getOrDefault(p.getUniqueId(), 0) * 24 + d; // 1 zumbi a mais ~ 24 blocos a mais
+            if (p.getUniqueId().equals(s.target)) score -= 6;               // leve preferencia em manter o alvo
+            if (score < bestScore) { bestScore = score; best = p; }
         }
+        if (best == null && valid(t, z)) best = t;
+        if (best != null && !best.getUniqueId().equals(s.target)) { s.resource = null; s.action = "novo alvo: " + best.getName(); }
         s.target = best == null ? null : best.getUniqueId();
+        s.assigned = true;
         return best;
     }
 
@@ -219,12 +245,24 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
             Location zl = z.getLocation(), tl = t.getLocation();
             double dist = zl.distance(tl);
-            // lenhador indo cortar arvore: nao recalcula caminho ate o jogador enquanto isso
-            if (s.role == LUMBER && s.tree != null) {
-                if (Tag.LOGS.isTagged(s.tree.getType()) && s.invTotal < capacity()) { goToTree(z, s, zl.getBlock()); continue; }
-                s.tree = null;
+            long now = System.currentTimeMillis();
+
+            // FASE 1 (COLETA): alvo no alto e pouco material -> junta recurso primeiro, ataca depois
+            if (tool(s) != null) {
+                double dyT = tl.getY() - zl.getY();
+                if (!s.gathering && dyT >= 2 && now > s.gatherCooldownUntil && z.isOnGround()
+                        && zl.getBlock().getType() != Material.LADDER && material(s) < needFor(s, dyT)) {
+                    startGather(s, needFor(s, dyT), now);
+                }
+                if (s.gathering) {
+                    if (material(s) >= s.need || s.invTotal >= capacity()) { s.gathering = false; s.resource = null; s.action = "material ok, atacando"; }
+                    else if (now - s.gatherStart > 45_000) { s.gathering = false; s.gatherCooldownUntil = now + 20_000; s.action = "coleta demorou, ataca com o que tem"; }
+                    else { gatherTick(z, s, now); debug(z, s, dist, tl.getY() - zl.getY()); continue; }
+                }
             }
+            // FASE 2 (ATAQUE)
             if (s.tick % 2 == 0 || !s.pathOk) s.pathOk = z.getPathfinder().moveTo(t, 1.15);
+            debug(z, s, dist, tl.getY() - zl.getY());
 
             // travado: quase nao andou e o alvo nao esta colado
             if (s.lastPos != null && zl.getWorld() == s.lastPos.getWorld() && zl.distanceSquared(s.lastPos) < 0.05 && dist > 1.8) s.stuckTicks++;
@@ -237,6 +275,98 @@ final class SmartHorde implements org.bukkit.event.Listener {
             act(z, s, zl, tl, dist);
         }
         if (horde.isEmpty() && task != null) { task.cancel(); task = null; }
+    }
+
+    // ---------------------------------------------------------------- fase de coleta
+
+    /** Quanto material a subida pede: blocos (dy + margem) ou, para o lenhador, madeira para escadas + bancada. */
+    private int needFor(State s, double dy) {
+        if (s.role == LUMBER) {
+            int ladders = (int) Math.ceil(dy) + 1;
+            return (int) Math.ceil(ladders / 3.0) * 4 + 4; // ~4 tabuas por 3 escadas + bancada
+        }
+        return Math.min(capacity(), (int) Math.ceil(dy) + 4);
+    }
+
+    /** Material atual na mesma unidade do needFor. */
+    private int material(State s) {
+        if (s.role == LUMBER) return woodUnits(s) + (int) Math.ceil(s.ladders * 4 / 3.0) + (s.hasTable ? 4 : 0);
+        return s.invTotal;
+    }
+
+    private void startGather(State s, int need, long now) {
+        s.gathering = true;
+        s.need = need;
+        s.gatherStart = now;
+        s.resource = null;
+        s.action = "coletando (precisa " + need + ")";
+    }
+
+    /** Vai ate o recurso mais proximo (superficie primeiro), quebra e guarda; repete ate ter o necessario. */
+    private void gatherTick(Zombie z, State s, long now) {
+        if (s.resource != null && (!canBreak(s, s.resource) || s.bad.contains(s.resource))) s.resource = null;
+        if (s.resource == null) {
+            if (now - s.lastScan < 1000) return;
+            s.lastScan = now;
+            s.resource = scanResource(z, s);
+            s.resourceSince = now;
+            if (s.resource == null) { // nada no raio: ataca com o que tem e tenta de novo daqui a pouco
+                s.gathering = false;
+                s.gatherCooldownUntil = now + 15_000;
+                s.action = "sem recurso no raio";
+                return;
+            }
+        }
+        Block r = s.resource;
+        Location c = r.getLocation().add(0.5, 0.5, 0.5);
+        if (z.getEyeLocation().distance(c) <= 4.2) {
+            z.lookAt(c);
+            progressBreak(z, s, r);
+            s.action = "quebrando " + r.getType().name().toLowerCase();
+            if (!canBreak(s, r)) s.resource = null; // quebrou: proximo
+            return;
+        }
+        if (now - s.resourceSince > 8000) { s.bad.add(r); s.resource = null; s.action = "nao alcanca recurso, outro"; return; }
+        z.getPathfinder().moveTo(r.getLocation().add(0.5, 1, 0.5), 1.15);
+        s.action = "indo ate " + r.getType().name().toLowerCase();
+    }
+
+    /** Recurso mais proximo e exposto (com face para o ar) que o papel pode quebrar e que vira material util. */
+    private Block scanResource(Zombie z, State s) {
+        Block feet = z.getLocation().getBlock();
+        int r = s.role == LUMBER ? 16 : 10;
+        Block best = null; double bestScore = Double.MAX_VALUE;
+        for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) for (int dyb = -4; dyb <= 4; dyb++) {
+            Block b = feet.getRelative(dx, dyb, dz);
+            Material m = b.getType();
+            if (m.isAir() || b.isPassable()) continue;
+            if (s.role == LUMBER ? !Tag.LOGS.isTagged(m) : !canBreak(s, b)) continue;
+            if (s.bad.contains(b) || (dx == 0 && dz == 0 && dyb < 0)) continue; // nunca o chao embaixo dele
+            boolean exposed = false;
+            for (BlockFace f : new BlockFace[]{BlockFace.UP, BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST}) {
+                if (b.getRelative(f).isPassable()) { exposed = true; break; }
+            }
+            if (!exposed) continue;
+            double score = Math.sqrt(dx * dx + dz * dz + dyb * dyb * 1.5) + m.getHardness() * 1.5;
+            if (score < bestScore) { bestScore = score; best = b; }
+        }
+        if (best != null) { // confere se o drop serve para construir (ex.: minerio de carvao nao)
+            boolean useful = false;
+            for (ItemStack d : best.getDrops(tool(s))) if (buildable(d.getType()) || Tag.LOGS.isTagged(d.getType())) { useful = true; break; }
+            if (!useful) { s.bad.add(best); return null; }
+        }
+        return best;
+    }
+
+    private void debug(Zombie z, State s, double dist, double dy) {
+        if (!plugin.getConfig().getBoolean("horde.debug", false)) return;
+        long now = System.currentTimeMillis();
+        if (now - s.lastDebug < 5000) return;
+        s.lastDebug = now;
+        String[] roles = {"minerador", "lenhador", "bruto", "tanque", "cavador"};
+        plugin.getLogger().info(String.format("[horda] %s#%04d %s inv=%d/%d escadas=%d dist=%.0f dy=%+.0f | %s",
+                roles[s.role], z.getEntityId() % 10000, s.gathering ? "COLETA" : "ATAQUE",
+                material(s), s.gathering ? s.need : capacity(), s.ladders, dist, dy, s.action));
     }
 
     /** Sem caminho ou travado: pilar, quebrar o obstaculo, ponte ou pulo. */
@@ -272,9 +402,12 @@ final class SmartHorde implements org.bukkit.event.Listener {
             }
             if (now - s.lastPlace > 650 && replaceable(feet) && feet.getRelative(BlockFace.DOWN).isSolid()) {
                 // Junta material ANTES de subir: em cima do pilar so tem ar, nao da para reabastecer.
-                int need = Math.min(capacity(), (int) Math.ceil(dy) + 2);
-                if (s.invTotal < need && gather(z, s, feet, dir, false)) return; // ainda tem o que minerar em volta
-                if (s.invTotal == 0) { gather(z, s, feet, dir, true); return; }
+                if (s.invTotal == 0) { // acabou: volta a coletar (no chao) ou espera
+                    if (z.isOnGround() && now > s.gatherCooldownUntil) startGather(s, needFor(s, dy), now);
+                    else gather(z, s, feet, dir, true);
+                    return;
+                }
+                s.action = "pilar (" + s.invTotal + " blocos)";
                 Material m = takeBlock(s);
                 z.teleport(zl.clone().add(0, 1.05, 0));
                 feet.setType(m);
@@ -289,12 +422,16 @@ final class SmartHorde implements org.bukkit.event.Listener {
         else if (!frontHead.isPassable()) obstacle = frontHead;
         else if (!front.isPassable()) obstacle = front;
         else if (dy >= 1 && !feet.getRelative(BlockFace.UP, 2).isPassable()) obstacle = feet.getRelative(BlockFace.UP, 2); // teto
-        if (obstacle != null && canBreak(s, obstacle)) { progressBreak(z, s, obstacle); return; }
+        if (obstacle != null && canBreak(s, obstacle)) { progressBreak(z, s, obstacle); s.action = "abrindo caminho"; return; }
 
         // 3) buraco/agua na frente e alvo nao muito abaixo: ponte
         Block frontBelow = front.getRelative(BlockFace.DOWN);
         if (front.isPassable() && replaceable(frontBelow) && dy > -2 && now - s.lastPlace > 500) {
-            if (s.invTotal == 0) { gather(z, s, feet, dir, true); return; } // sem blocos para a ponte
+            if (s.invTotal == 0) { // sem blocos para a ponte: coleta
+                if (now > s.gatherCooldownUntil) startGather(s, Math.min(capacity(), 8), now); else gather(z, s, feet, dir, true);
+                return;
+            }
+            s.action = "ponte";
             frontBelow.setType(takeBlock(s));
             placeFx(frontBelow);
             s.lastPlace = now;
@@ -458,9 +595,10 @@ final class SmartHorde implements org.bukkit.event.Listener {
         }
         int cost = 4 + (s.hasTable ? 0 : 4); // um lote de escadas (+ a bancada se ainda nao tiver)
         if (woodUnits(s) < cost) {
-            if (gather(z, s, feet, toVec(towardWall), false)) return true; // madeira ao alcance
-            return goToTree(z, s, feet);                                    // senao, vai ate a arvore mais perto
+            if (now > s.gatherCooldownUntil) { startGather(s, Math.max(needFor(s, need - 1), cost), now); return true; }
+            return false; // sem arvore por perto: deixa o pilar/outros agirem
         }
+        s.action = "bancada: crafta escadas";
         Block spot = null;
         for (BlockFace f : new BlockFace[]{towardWall.getOppositeFace(), BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST}) {
             Block b = feet.getRelative(f);
