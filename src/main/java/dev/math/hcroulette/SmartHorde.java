@@ -127,10 +127,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             s.role = role;
             s.target = target.getUniqueId();
             // inventario inicial por papel; o resto ele junta quebrando blocos no caminho
-            // so minerador e lenhador mexem em blocos; comecam com um pouco do proprio material
-            if (role == MINER) for (int k = 0; k < 16; k++) addBlock(s, Material.COBBLESTONE);
-            if (role == LUMBER) for (int k = 0; k < 16; k++) addBlock(s, Material.OAK_PLANKS);
-            if (role == DIGGER) for (int k = 0; k < 16; k++) addBlock(s, Material.DIRT);
+            // comecam sem blocos (vanilla): so colocam o que mineraram no caminho / antes de subir
             horde.put(z.getUniqueId(), s);
             w.spawnParticle(Particle.LARGE_SMOKE, base.clone().add(0, 1, 0), 12, 0.3, 0.6, 0.3, 0.01);
         }
