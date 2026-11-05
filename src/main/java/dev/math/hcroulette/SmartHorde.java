@@ -384,6 +384,8 @@ final class SmartHorde implements org.bukkit.event.Listener {
             }
         }
         Block r = s.resource;
+        // alguem em cima desse bloco: quebrar derruba o colega -> procura outro
+        if (occupied(r.getRelative(BlockFace.UP), z)) { s.bad.add(r); s.resource = null; s.action = "recurso com zumbi em cima, outro"; return; }
         Location c = r.getLocation().add(0.5, 0.5, 0.5);
         if (z.getEyeLocation().distance(c) <= 4.2) {
             z.lookAt(c);
@@ -451,7 +453,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
     /** Quebravel pelo papel, ou na mao (terra, grama, areia, cascalho) quando em modo mao. */
     private static boolean breakable(State s, Block b) {
         if (canBreak(s, b)) return true;
-        if (!s.hand) return false;
+        if (!s.hand || ZPLACED.contains(b)) return false;
         Material m = b.getType();
         return !b.isPassable() && !PROTECTED.contains(m) && Tag.MINEABLE_SHOVEL.isTagged(m) && m.getHardness() >= 0 && m.getHardness() <= 0.6f;
     }
@@ -637,9 +639,13 @@ final class SmartHorde implements org.bukkit.event.Listener {
      * Regras de ferramenta como no vanilla: minerador so quebra o que picareta de madeira minera
      * (pedra sim; ferro/diamante/obsidiana nao); lenhador so blocos de madeira (tag de machado).
      */
+    /** Blocos que a horda colocou (rampa, pilar, degrau, ponte, escada): ninguem da horda desmonta. */
+    static final java.util.Set<Block> ZPLACED = new java.util.HashSet<>();
+
     private static boolean canBreak(State s, Block b) {
         Material m = b.getType();
         if (b.isPassable() || PROTECTED.contains(m) || Tag.BEDS.isTagged(m) || m.getHardness() < 0) return false;
+        if (ZPLACED.contains(b)) return false; // nao desmonta a propria estrutura (derrubava quem estava em cima)
         return switch (s.role) {
             case MINER -> Tag.MINEABLE_PICKAXE.isTagged(m) && !Tag.NEEDS_STONE_TOOL.isTagged(m)
                     && !Tag.NEEDS_IRON_TOOL.isTagged(m) && !Tag.NEEDS_DIAMOND_TOOL.isTagged(m);
@@ -675,6 +681,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
         Location c = b.getLocation().add(0.5, 0.5, 0.5);
         b.getWorld().spawnParticle(Particle.BLOCK, c, 25, 0.3, 0.3, 0.3, b.getBlockData());
         if (REC != null) REC.block(b, Material.AIR);
+        ZPLACED.remove(b);
         b.setType(Material.AIR);
         for (ItemStack d : drops) {
             int left = 0;
@@ -926,6 +933,8 @@ final class SmartHorde implements org.bukkit.event.Listener {
     }
 
     private static void placeFx(Block b) {
+        if (ZPLACED.size() > 20000) ZPLACED.clear();
+        ZPLACED.add(b);
         if (REC != null) REC.block(b, b.getType());
         b.getWorld().playSound(b.getLocation(), Sound.BLOCK_STONE_PLACE, 1f, 0.9f);
     }
