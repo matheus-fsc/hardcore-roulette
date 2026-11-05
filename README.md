@@ -24,7 +24,7 @@ Plugin Paper para **hardcore em grupo**: quando alguém morre, o mundo reseta pa
 
 ### Invasões de facções
 Inimigos controlados por bots externos ([minecraft-raiders](https://github.com/matheus-fsc/minecraft-raiders)):
-- **Zumbis**: à noite, cercam o alvo, cavam e constroem.
+- **Zumbis**: mobs do próprio servidor (sem bots), à noite, com rastreio de até 128 blocos. Papéis com regra de ferramenta do vanilla: **minerador** (picareta de madeira) quebra e coloca pedra e o que a picareta de madeira minera; **lenhador** (machado de madeira) quebra e coloca blocos de madeira; brutamontes e tanque só perseguem e lutam. Cada um tem inventário com limite (`horde.block-capacity`), constrói pilares e pontes só com o que carrega, junta material quebrando blocos em volta quando acaba e solta o inventário ao morrer.
 - **Piratas**: de dia, saqueiam baús e fogem.
 - **Guilda inimiga**: atravessa o mapa minerando; neutra até ser provocada.
 
@@ -63,6 +63,8 @@ invasion:
   token: <gerado automaticamente>   # o mesmo RAID_TOKEN do minecraft-raiders
   chance: { zumbis: 0.35, piratas: 0.12, guilda: 0.10 }
   min-day: 1
+horde:
+  block-capacity: 32     # blocos que cada zumbi minerador/lenhador carrega
 bedrock-whitelist: []
 ```
 

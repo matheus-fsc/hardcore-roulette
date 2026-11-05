@@ -38,18 +38,16 @@ import java.util.concurrent.ThreadLocalRandom;
  * Horda zumbi com mobs de verdade (sem bots): rastreio de longo alcance, quebra de blocos com animacao,
  * pilares e pontes. Mesma ideia dos mods de apocalipse (Zombie Break & Build etc.), via API do Paper.
  */
-final class SmartHorde {
+final class SmartHorde implements org.bukkit.event.Listener {
 
     private static final Set<Material> PROTECTED = Set.of(
             Material.BEDROCK, Material.OBSIDIAN, Material.CRYING_OBSIDIAN, Material.BARRIER, Material.REINFORCED_DEEPSLATE,
             Material.END_PORTAL, Material.END_PORTAL_FRAME, Material.NETHER_PORTAL, Material.END_GATEWAY,
             Material.RESPAWN_ANCHOR, Material.SPAWNER, Material.COMMAND_BLOCK, Material.CHAIN_COMMAND_BLOCK,
             Material.REPEATING_COMMAND_BLOCK, Material.STRUCTURE_BLOCK, Material.JIGSAW, Material.LIGHT);
-    private static final Material BUILD = Material.COBBLESTONE;
-
     private static final class State {
         UUID target;
-        int role;            // 0 escavador, 1 construtor, 2 brutamontes, 3 tanque
+        int role;            // 0 minerador (picareta), 1 lenhador (machado), 2 brutamontes, 3 tanque
         Location lastPos;
         int stuckTicks;
         boolean pathOk = true;
@@ -57,6 +55,34 @@ final class SmartHorde {
         long breakStart;
         long lastPlace;
         int tick;
+        /** Inventario de blocos: so constroi com o que carrega (e o que carrega veio do que quebrou). */
+        final java.util.EnumMap<Material, Integer> inv = new java.util.EnumMap<>(Material.class);
+        int invTotal;
+    }
+
+    private int capacity() { return Math.max(0, plugin.getConfig().getInt("horde.block-capacity", 32)); }
+
+    /** Bloco que da para usar em pilar/ponte: cubo solido comum (nada de flor, vidro fino, bau etc.). */
+    private static boolean buildable(Material m) {
+        return m.isBlock() && m.isSolid() && m.isOccluding() && !m.hasGravity() && !PROTECTED.contains(m)
+                && m != Material.TNT && !m.name().contains("ORE") && !m.name().contains("SHULKER");
+    }
+
+    private boolean addBlock(State s, Material m) {
+        if (!buildable(m) || s.invTotal >= capacity()) return false;
+        s.inv.merge(m, 1, Integer::sum);
+        s.invTotal++;
+        return true;
+    }
+
+    /** Tira um bloco do inventario (o tipo que tem mais). null = sem blocos. */
+    private static Material takeBlock(State s) {
+        Material best = null; int n = 0;
+        for (var e : s.inv.entrySet()) if (e.getValue() > n) { n = e.getValue(); best = e.getKey(); }
+        if (best == null) return null;
+        if (n == 1) s.inv.remove(best); else s.inv.put(best, n - 1);
+        s.invTotal--;
+        return best;
     }
 
     private final HardcoreRoulette plugin;
@@ -67,6 +93,8 @@ final class SmartHorde {
     SmartHorde(HardcoreRoulette plugin) {
         this.plugin = plugin;
         this.key = new NamespacedKey(plugin, "horde");
+        Bukkit.getPluginManager().registerEvents(this, plugin);
+        plugin.getConfig().addDefault("horde.block-capacity", 32);
         // restos de uma horda anterior (crash/restart) somem ao carregar
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             for (World w : Bukkit.getWorlds()) for (Zombie z : w.getEntitiesByClass(Zombie.class))
@@ -93,6 +121,10 @@ final class SmartHorde {
             State s = new State();
             s.role = role;
             s.target = target.getUniqueId();
+            // inventario inicial por papel; o resto ele junta quebrando blocos no caminho
+            // so minerador e lenhador mexem em blocos; comecam com um pouco do proprio material
+            if (role == MINER) for (int k = 0; k < 8; k++) addBlock(s, Material.COBBLESTONE);
+            if (role == LUMBER) for (int k = 0; k < 8; k++) addBlock(s, Material.OAK_PLANKS);
             horde.put(z.getUniqueId(), s);
             w.spawnParticle(Particle.LARGE_SMOKE, base.clone().add(0, 1, 0), 12, 0.3, 0.6, 0.3, 0.01);
         }
@@ -113,8 +145,8 @@ final class SmartHorde {
         EntityEquipment eq = z.getEquipment();
         if (eq != null) {
             switch (role) {
-                case 0 -> eq.setItemInMainHand(new ItemStack(Material.IRON_PICKAXE));
-                case 1 -> eq.setItemInMainHand(new ItemStack(BUILD, 16));
+                case MINER -> eq.setItemInMainHand(new ItemStack(Material.WOODEN_PICKAXE));
+                case LUMBER -> eq.setItemInMainHand(new ItemStack(Material.WOODEN_AXE));
                 case 2 -> eq.setItemInMainHand(new ItemStack(Material.STONE_SWORD));
                 default -> eq.setHelmet(new ItemStack(Material.CHAINMAIL_HELMET));
             }
@@ -201,18 +233,26 @@ final class SmartHorde {
         Block frontHead = front.getRelative(BlockFace.UP);
         long now = System.currentTimeMillis();
 
+        // brutamontes/tanque nao mexem em blocos: so tentam destravar e seguem os outros
+        if (tool(s) == null) {
+            if (z.isOnGround()) z.setVelocity(dir.clone().multiply(0.22).setY(0.42));
+            return;
+        }
+
         // 1) alvo acima (penhasco, morro, torre) e perto na horizontal: sobe em pilar.
         //    Prioridade sobre cavar para o lado: cavar a parede nao ajuda a subir.
         if (dy >= 2 && horiz < 6) {
             Block ceiling = feet.getRelative(BlockFace.UP, 2);
             if (!ceiling.isPassable()) { // teto/saliencia: quebra primeiro
-                if (breakable(ceiling)) progressBreak(z, s, ceiling);
+                if (canBreak(s, ceiling)) progressBreak(z, s, ceiling);
                 else if (z.isOnGround()) z.setVelocity(dir.clone().multiply(0.3).setY(0.42)); // nao quebravel: tenta sair de baixo
                 return;
             }
             if (now - s.lastPlace > 650 && replaceable(feet) && feet.getRelative(BlockFace.DOWN).isSolid()) {
+                if (s.invTotal == 0) { gather(z, s, feet, dir); return; } // sem blocos: junta primeiro
+                Material m = takeBlock(s);
                 z.teleport(zl.clone().add(0, 1.05, 0));
-                feet.setType(BUILD);
+                feet.setType(m);
                 placeFx(feet);
                 s.lastPlace = now;
             }
@@ -224,12 +264,13 @@ final class SmartHorde {
         else if (!frontHead.isPassable()) obstacle = frontHead;
         else if (!front.isPassable()) obstacle = front;
         else if (dy >= 1 && !feet.getRelative(BlockFace.UP, 2).isPassable()) obstacle = feet.getRelative(BlockFace.UP, 2); // teto
-        if (obstacle != null && breakable(obstacle)) { progressBreak(z, s, obstacle); return; }
+        if (obstacle != null && canBreak(s, obstacle)) { progressBreak(z, s, obstacle); return; }
 
         // 3) buraco/agua na frente e alvo nao muito abaixo: ponte
         Block frontBelow = front.getRelative(BlockFace.DOWN);
         if (front.isPassable() && replaceable(frontBelow) && dy > -2 && now - s.lastPlace > 500) {
-            frontBelow.setType(BUILD);
+            if (s.invTotal == 0) { gather(z, s, feet, dir); return; } // sem blocos para a ponte
+            frontBelow.setType(takeBlock(s));
             placeFx(frontBelow);
             s.lastPlace = now;
             return;
@@ -243,11 +284,30 @@ final class SmartHorde {
         return b.isPassable() || b.isLiquid() || m == Material.SHORT_GRASS || m == Material.TALL_GRASS || m == Material.SNOW;
     }
 
-    private static boolean breakable(Block b) {
+    static final int MINER = 0, LUMBER = 1, BRUTE = 2, TANK = 3;
+
+    /** Ferramenta do papel (define o que quebra e o drop). null = nao mexe em blocos. */
+    private static ItemStack tool(State s) {
+        return switch (s.role) {
+            case MINER -> new ItemStack(Material.WOODEN_PICKAXE);
+            case LUMBER -> new ItemStack(Material.WOODEN_AXE);
+            default -> null;
+        };
+    }
+
+    /**
+     * Regras de ferramenta como no vanilla: minerador so quebra o que picareta de madeira minera
+     * (pedra sim; ferro/diamante/obsidiana nao); lenhador so blocos de madeira (tag de machado).
+     */
+    private static boolean canBreak(State s, Block b) {
         Material m = b.getType();
-        if (b.isPassable() || PROTECTED.contains(m) || Tag.BEDS.isTagged(m)) return false;
-        float h = m.getHardness();
-        return h >= 0 && h <= 50;
+        if (b.isPassable() || PROTECTED.contains(m) || Tag.BEDS.isTagged(m) || m.getHardness() < 0) return false;
+        return switch (s.role) {
+            case MINER -> Tag.MINEABLE_PICKAXE.isTagged(m) && !Tag.NEEDS_STONE_TOOL.isTagged(m)
+                    && !Tag.NEEDS_IRON_TOOL.isTagged(m) && !Tag.NEEDS_DIAMOND_TOOL.isTagged(m);
+            case LUMBER -> Tag.MINEABLE_AXE.isTagged(m);
+            default -> false;
+        };
     }
 
     private void progressBreak(Zombie z, State s, Block b) {
@@ -263,9 +323,55 @@ final class SmartHorde {
         if (s.tick % 2 == 0) b.getWorld().playSound(b.getLocation(), Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 0.7f, 0.8f + ThreadLocalRandom.current().nextFloat() * 0.3f);
         if (progress >= 1f) {
             b.getWorld().playSound(b.getLocation(), Sound.ENTITY_ZOMBIE_BREAK_WOODEN_DOOR, 0.8f, 1f);
-            b.breakNaturally(true);
             cancelBreak(z, s);
+            collect(s, b);
             s.stuckTicks = 0;
+        }
+    }
+
+    /** Quebra o bloco e guarda o drop no inventario (como se fosse com picareta); o que nao cabe cai no chao. */
+    private void collect(State s, Block b) {
+        ItemStack t = tool(s);
+        java.util.Collection<ItemStack> drops = t == null ? b.getDrops() : b.getDrops(t);
+        Location c = b.getLocation().add(0.5, 0.5, 0.5);
+        b.getWorld().spawnParticle(Particle.BLOCK, c, 25, 0.3, 0.3, 0.3, b.getBlockData());
+        b.setType(Material.AIR);
+        for (ItemStack d : drops) {
+            int left = 0;
+            for (int i = 0; i < d.getAmount(); i++) if (!addBlock(s, d.getType())) left++;
+            if (left > 0) b.getWorld().dropItemNaturally(c, new ItemStack(d.getType(), left));
+        }
+    }
+
+    /**
+     * Sem blocos para construir: quebra um bloco do lado (o mais facil que de material de construcao).
+     * Nunca o bloco em que esta pisando.
+     */
+    private void gather(Zombie z, State s, Block feet, Vector dir) {
+        if (s.invTotal >= capacity()) return;
+        Block best = null; float bh = Float.MAX_VALUE;
+        for (BlockFace f : new BlockFace[]{BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST}) {
+            for (Block b : new Block[]{feet.getRelative(f), feet.getRelative(f).getRelative(BlockFace.DOWN)}) {
+                if (!canBreak(s, b)) continue;
+                boolean useful = false;
+                for (ItemStack d : b.getDrops(tool(s))) if (buildable(d.getType())) { useful = true; break; }
+                if (!useful) continue;
+                float h = b.getType().getHardness();
+                if (h < bh) { bh = h; best = b; }
+            }
+        }
+        if (best != null) progressBreak(z, s, best);
+        else if (z.isOnGround()) z.setVelocity(dir.clone().multiply(0.25).setY(0.42)); // nada util em volta: anda um pouco
+    }
+
+    /** Zumbi da horda morreu: solta os blocos que carregava. */
+    @org.bukkit.event.EventHandler
+    public void onDeath(org.bukkit.event.entity.EntityDeathEvent e) {
+        State s = horde.remove(e.getEntity().getUniqueId());
+        if (s == null) return;
+        for (var en : s.inv.entrySet()) {
+            int n = en.getValue();
+            while (n > 0) { int k = Math.min(64, n); e.getDrops().add(new ItemStack(en.getKey(), k)); n -= k; }
         }
     }
 
@@ -284,8 +390,10 @@ final class SmartHorde {
 
     String describe() {
         int[] roles = new int[4];
-        for (State s : horde.values()) roles[s.role]++;
-        return alive() + " zumbis (escavadores " + roles[0] + ", construtores " + roles[1] + ", brutos " + roles[2] + ", tanques " + roles[3] + ")";
+        int blocks = 0;
+        for (State s : horde.values()) { roles[s.role]++; blocks += s.invTotal; }
+        return alive() + " zumbis (mineradores " + roles[MINER] + ", lenhadores " + roles[LUMBER] + ", brutos " + roles[BRUTE] + ", tanques " + roles[TANK]
+                + ") carregando " + blocks + " blocos (limite " + capacity() + " cada)";
     }
 
     Component countLine() { return Component.text(alive() + " zumbis restantes"); }
