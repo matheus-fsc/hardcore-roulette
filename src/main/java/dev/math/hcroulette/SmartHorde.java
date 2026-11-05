@@ -260,6 +260,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
                     long took = now - s.gatherStart;
                     if (material(s) >= needNow || s.invTotal >= capacity() || (took > 25_000 && material(s) >= needNow * 0.6)) {
                         s.gathering = false; s.resource = null; s.action = "material ok, atacando";
+                        s.gatherCooldownUntil = now + 20_000; // usa o que tem antes de voltar a coletar
                     }
                     else if (took > 45_000) { s.gathering = false; s.gatherCooldownUntil = now + 20_000; s.action = "coleta demorou, ataca com o que tem"; }
                     else { gatherTick(z, s, now); debug(z, s, dist, tl.getY() - zl.getY()); continue; }
@@ -288,7 +289,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
     private int needFor(State s, double dy) {
         if (s.role == LUMBER && !s.hand) {
             int ladders = (int) Math.ceil(dy);
-            return (int) Math.ceil(ladders / 3.0) * 4 + 4; // ~4 tabuas por 3 escadas + bancada
+            return Math.min(capacity(), (int) Math.ceil(ladders / 3.0) * 4 + 4); // ~4 tabuas por 3 escadas + bancada
         }
         return Math.min(capacity(), (int) Math.ceil(dy) + 1); // 1 bloco por degrau + 1 de folga
     }
