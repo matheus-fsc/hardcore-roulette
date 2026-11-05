@@ -127,10 +127,9 @@ final class Arena implements Listener {
                         if (v.equals("true") || v.equals("false")) cfg.set(path, Boolean.parseBoolean(v));
                         else try { cfg.set(path, Double.parseDouble(v)); } catch (NumberFormatException nf) { cfg.set(path, v); }
                     }
-                    args = new String[pos.size() + 1];
-                    args[0] = "run";
-                    for (int i = 0; i < pos.size(); i++) args[i + 1] = pos.get(i);
-                    final String[] fa = args;
+                    final String[] fa = new String[pos.size() + 1];
+                    fa[0] = "run";
+                    for (int i = 0; i < pos.size(); i++) fa[i + 1] = pos.get(i);
                     String strat = fa.length > 2 ? fa[2] : "replay";
                     int secs = fa.length > 3 ? Integer.parseInt(fa[3]) : 300;
                     String tg = fa.length > 4 ? fa[4] : "-";
