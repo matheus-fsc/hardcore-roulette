@@ -490,7 +490,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
         // brutamontes/tanque nao mexem em blocos: so tentam destravar e seguem os outros
         if (tool(s) == null) {
-            if (z.isOnGround()) z.setVelocity(dir.clone().multiply(0.22).setY(0.42));
+            safeNudge(z, dir, 0.22);
             return;
         }
 
@@ -528,7 +528,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             if (!ceiling.isPassable()) { // teto/saliencia: quebra primeiro
                 if (canBreak(s, ceiling)) progressBreak(z, s, ceiling);
                 else if (opt("escape-ceiling") && escapeCeiling(z, s, feet, tl)) s.action = "saindo de baixo do teto";
-                else if (z.isOnGround()) z.setVelocity(dir.clone().multiply(0.3).setY(0.42)); // nao quebravel: tenta sair de baixo
+                else safeNudge(z, dir, 0.3); // nao quebravel: tenta sair de baixo (so se tiver chao do lado)
                 return;
             }
             if (now - s.lastPlace > 650 && replaceable(feet) && feet.getRelative(BlockFace.DOWN).isSolid()) {
@@ -571,7 +571,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             return;
         }
         // 4) empurrao + pulo para destravar
-        if (z.isOnGround()) z.setVelocity(dir.multiply(0.22).setY(0.42));
+        safeNudge(z, dir, 0.22);
     }
 
     /** Teto que nao quebra: vai para a celula vizinha (raio 3) com a coluna livre ate a altura do alvo. */
@@ -596,6 +596,24 @@ final class SmartHorde implements org.bukkit.event.Listener {
         z.getPathfinder().moveTo(best.getLocation().add(0.5, 0, 0.5), 1.15);
         s.stuckTicks = 0;
         return true;
+    }
+
+    /**
+     * Empurrao para destravar, mas como o pathfinder do vanilla: so se o bloco da frente tem chao
+     * a no maximo 3 de queda (senao o zumbi se joga do pilar/rampa). Tambem nao pula se a cabeca bate.
+     */
+    private static void safeNudge(Zombie z, Vector dir, double speed) {
+        if (!z.isOnGround()) return;
+        Location l = z.getLocation();
+        Block feet = l.getBlock();
+        Block ahead = l.clone().add(dir.getX(), 0, dir.getZ()).getBlock();
+        if (ahead.equals(feet)) ahead = feet.getRelative(Math.abs(dir.getX()) >= Math.abs(dir.getZ())
+                ? (dir.getX() >= 0 ? BlockFace.EAST : BlockFace.WEST) : (dir.getZ() >= 0 ? BlockFace.SOUTH : BlockFace.NORTH));
+        boolean ground = false;
+        if (!ahead.isPassable()) ground = ahead.getRelative(BlockFace.UP).isPassable() && ahead.getRelative(0, 2, 0).isPassable(); // degrau de 1
+        else for (int k = 1; k <= 3 && !ground; k++) ground = ahead.getRelative(0, -k, 0).getType().isSolid();
+        if (!ground) return;
+        z.setVelocity(dir.clone().setY(0).normalize().multiply(speed).setY(0.42));
     }
 
     private static boolean replaceable(Block b) {
@@ -688,7 +706,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             if (score < bestScore) { bestScore = score; best = b; }
         }
         if (best != null) { progressBreak(z, s, best); return true; }
-        if (nudge && z.isOnGround()) z.setVelocity(dir.clone().multiply(0.25).setY(0.42)); // nada util em volta: anda um pouco
+        if (nudge) safeNudge(z, dir, 0.25); // nada util em volta: anda um pouco (nunca para o vazio)
         return false;
     }
 
