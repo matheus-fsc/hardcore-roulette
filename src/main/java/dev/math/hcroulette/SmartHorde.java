@@ -657,6 +657,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
         Material m = b.getType();
         if (b.isPassable() || PROTECTED.contains(m) || Tag.BEDS.isTagged(m) || m.getHardness() < 0) return false;
         if (ZPLACED.contains(b)) return false; // nao desmonta a propria estrutura (derrubava quem estava em cima)
+        if (Tag.LEAVES.isTagged(m) && s.role != BRUTE && s.role != TANK) return true; // folha sai na mao (vanilla): travava a rampa
         return switch (s.role) {
             case MINER -> Tag.MINEABLE_PICKAXE.isTagged(m) && !Tag.NEEDS_STONE_TOOL.isTagged(m)
                     && !Tag.NEEDS_IRON_TOOL.isTagged(m) && !Tag.NEEDS_DIAMOND_TOOL.isTagged(m);
