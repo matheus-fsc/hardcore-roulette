@@ -66,6 +66,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
         long lastTreeScan;
         // fase de coleta
         boolean gathering;
+        boolean hand; // sem recurso do papel: cava terra/areia na mao (mais lento, como no vanilla)
         int need;            // material alvo (blocos; para lenhador, unidades de tabua)
         long gatherStart, gatherCooldownUntil, lastScan, resourceSince;
         Block resource;
@@ -255,8 +256,12 @@ final class SmartHorde implements org.bukkit.event.Listener {
                     startGather(s, needFor(s, dyT), now);
                 }
                 if (s.gathering) {
-                    if (material(s) >= s.need || s.invTotal >= capacity()) { s.gathering = false; s.resource = null; s.action = "material ok, atacando"; }
-                    else if (now - s.gatherStart > 45_000) { s.gathering = false; s.gatherCooldownUntil = now + 20_000; s.action = "coleta demorou, ataca com o que tem"; }
+                    int needNow = Math.min(s.need, needFor(s, dyT)); // o alvo pode ter descido/chegado perto
+                    long took = now - s.gatherStart;
+                    if (material(s) >= needNow || s.invTotal >= capacity() || (took > 25_000 && material(s) >= needNow * 0.6)) {
+                        s.gathering = false; s.resource = null; s.action = "material ok, atacando";
+                    }
+                    else if (took > 45_000) { s.gathering = false; s.gatherCooldownUntil = now + 20_000; s.action = "coleta demorou, ataca com o que tem"; }
                     else { gatherTick(z, s, now); debug(z, s, dist, tl.getY() - zl.getY()); continue; }
                 }
             }
@@ -281,21 +286,22 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
     /** Quanto material a subida pede: blocos (dy + margem) ou, para o lenhador, madeira para escadas + bancada. */
     private int needFor(State s, double dy) {
-        if (s.role == LUMBER) {
-            int ladders = (int) Math.ceil(dy) + 1;
+        if (s.role == LUMBER && !s.hand) {
+            int ladders = (int) Math.ceil(dy);
             return (int) Math.ceil(ladders / 3.0) * 4 + 4; // ~4 tabuas por 3 escadas + bancada
         }
-        return Math.min(capacity(), (int) Math.ceil(dy) + 4);
+        return Math.min(capacity(), (int) Math.ceil(dy) + 1); // 1 bloco por degrau + 1 de folga
     }
 
     /** Material atual na mesma unidade do needFor. */
     private int material(State s) {
-        if (s.role == LUMBER) return woodUnits(s) + (int) Math.ceil(s.ladders * 4 / 3.0) + (s.hasTable ? 4 : 0);
+        if (s.role == LUMBER && !s.hand) return woodUnits(s) + (int) Math.ceil(s.ladders * 4 / 3.0) + (s.hasTable ? 4 : 0);
         return s.invTotal;
     }
 
     private void startGather(State s, int need, long now) {
         s.gathering = true;
+        s.hand = false;
         s.need = need;
         s.gatherStart = now;
         s.resource = null;
@@ -304,7 +310,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
     /** Vai ate o recurso mais proximo (superficie primeiro), quebra e guarda; repete ate ter o necessario. */
     private void gatherTick(Zombie z, State s, long now) {
-        if (s.resource != null && (!canBreak(s, s.resource) || s.bad.contains(s.resource))) s.resource = null;
+        if (s.resource != null && (!breakable(s, s.resource) || s.bad.contains(s.resource))) s.resource = null;
         if (s.resource == null) {
             if (now - s.lastScan < 1000) return;
             s.lastScan = now;
@@ -321,9 +327,9 @@ final class SmartHorde implements org.bukkit.event.Listener {
         Location c = r.getLocation().add(0.5, 0.5, 0.5);
         if (z.getEyeLocation().distance(c) <= 4.2) {
             z.lookAt(c);
+            s.action = (s.hand ? "cavando na mao " : "quebrando ") + r.getType().name().toLowerCase();
             progressBreak(z, s, r);
-            s.action = "quebrando " + r.getType().name().toLowerCase();
-            if (!canBreak(s, r)) s.resource = null; // quebrou: proximo
+            if (!breakable(s, r)) s.resource = null; // quebrou: proximo
             return;
         }
         if (now - s.resourceSince > 8000) { s.bad.add(r); s.resource = null; s.action = "nao alcanca recurso, outro"; return; }
@@ -331,31 +337,57 @@ final class SmartHorde implements org.bukkit.event.Listener {
         s.action = "indo ate " + r.getType().name().toLowerCase();
     }
 
-    /** Recurso mais proximo e exposto (com face para o ar) que o papel pode quebrar e que vira material util. */
+    /**
+     * Recurso mais proximo e exposto que vira material util. Primeiro o do papel (pedra para o minerador,
+     * tora para o lenhador, num raio maior); sem nada, cai para terra/areia cavada na mao.
+     */
     private Block scanResource(Zombie z, State s) {
+        boolean wasHand = s.hand;
+        s.hand = false;
+        Block b = s.role == LUMBER ? scan(z, s, 28, -4, 6) : scan(z, s, s.role == MINER ? 16 : 12, -5, 4);
+        if (b == null && s.role != DIGGER) {
+            s.hand = true;
+            b = scan(z, s, 12, -4, 4);
+            if (b != null && s.role == LUMBER && !wasHand) s.need = Math.min(capacity(), Math.max(6, s.need));
+        }
+        if (b == null) s.hand = wasHand;
+        return b;
+    }
+
+    private Block scan(Zombie z, State s, int r, int ylo, int yhi) {
         Block feet = z.getLocation().getBlock();
-        int r = s.role == LUMBER ? 16 : 10;
         Block best = null; double bestScore = Double.MAX_VALUE;
-        for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) for (int dyb = -4; dyb <= 4; dyb++) {
+        for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) for (int dyb = ylo; dyb <= yhi; dyb++) {
             Block b = feet.getRelative(dx, dyb, dz);
             Material m = b.getType();
             if (m.isAir() || b.isPassable()) continue;
-            if (s.role == LUMBER ? !Tag.LOGS.isTagged(m) : !canBreak(s, b)) continue;
+            if (s.role == LUMBER && !s.hand ? !Tag.LOGS.isTagged(m) : !breakable(s, b)) continue;
             if (s.bad.contains(b) || (dx == 0 && dz == 0 && dyb < 0)) continue; // nunca o chao embaixo dele
             boolean exposed = false;
             for (BlockFace f : new BlockFace[]{BlockFace.UP, BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST}) {
                 if (b.getRelative(f).isPassable()) { exposed = true; break; }
             }
             if (!exposed) continue;
+            boolean useful = false;
+            for (ItemStack d : drops(s, b)) if (buildable(d.getType()) || Tag.LOGS.isTagged(d.getType())) { useful = true; break; }
+            if (!useful) continue; // ex.: minerio de carvao nao serve
             double score = Math.sqrt(dx * dx + dz * dz + dyb * dyb * 1.5) + m.getHardness() * 1.5;
             if (score < bestScore) { bestScore = score; best = b; }
         }
-        if (best != null) { // confere se o drop serve para construir (ex.: minerio de carvao nao)
-            boolean useful = false;
-            for (ItemStack d : best.getDrops(tool(s))) if (buildable(d.getType()) || Tag.LOGS.isTagged(d.getType())) { useful = true; break; }
-            if (!useful) { s.bad.add(best); return null; }
-        }
         return best;
+    }
+
+    /** Quebravel pelo papel, ou na mao (terra, grama, areia, cascalho) quando em modo mao. */
+    private static boolean breakable(State s, Block b) {
+        if (canBreak(s, b)) return true;
+        if (!s.hand) return false;
+        Material m = b.getType();
+        return !b.isPassable() && !PROTECTED.contains(m) && Tag.MINEABLE_SHOVEL.isTagged(m) && m.getHardness() >= 0 && m.getHardness() <= 0.6f;
+    }
+
+    private static java.util.Collection<ItemStack> drops(State s, Block b) {
+        ItemStack t = tool(s);
+        return t == null || !canBreak(s, b) ? b.getDrops() : b.getDrops(t);
     }
 
     private void debug(Zombie z, State s, double dist, double dy) {
@@ -391,9 +423,34 @@ final class SmartHorde implements org.bukkit.event.Listener {
             return;
         }
 
-        // 1) alvo acima (penhasco, morro, torre) e perto na horizontal: sobe em pilar.
+        // 1a) alvo acima mas longe na horizontal: escadaria de blocos na direcao dele (sobe 1 por bloco andado)
+        boolean wall = !front.isPassable() || !frontHead.isPassable();
+        if (dy >= 2 && horiz >= 3 && !wall) {
+            Block feetUp2 = feet.getRelative(BlockFace.UP, 2), frontUp2 = front.getRelative(BlockFace.UP, 2);
+            if (feetUp2.isPassable() && frontUp2.isPassable()) {
+                if (now - s.lastPlace < 650) return;
+                if (s.invTotal == 0) {
+                    if (z.isOnGround() && now > s.gatherCooldownUntil) startGather(s, needFor(s, dy), now);
+                    else gather(z, s, feet, dir, true);
+                    return;
+                }
+                Block below = front.getRelative(BlockFace.DOWN);
+                if (replaceable(below)) { // buraco na frente: tapa antes do degrau
+                    below.setType(takeBlock(s)); placeFx(below); s.lastPlace = now; s.action = "ponte"; return;
+                }
+                front.setType(takeBlock(s));
+                placeFx(front);
+                Location step = front.getLocation().add(0.5, 1.05, 0.5);
+                step.setYaw(zl.getYaw()); step.setPitch(zl.getPitch());
+                z.teleport(step);
+                s.lastPlace = now;
+                s.action = "degrau (" + s.invTotal + " blocos)";
+                return;
+            }
+        }
+        // 1b) alvo acima e perto (ou parede na frente): sobe em pilar.
         //    Prioridade sobre cavar para o lado: cavar a parede nao ajuda a subir.
-        if (dy >= 2 && horiz < 6) {
+        if (dy >= 2 && (horiz < 3 || wall)) {
             Block ceiling = feet.getRelative(BlockFace.UP, 2);
             if (!ceiling.isPassable()) { // teto/saliencia: quebra primeiro
                 if (canBreak(s, ceiling)) progressBreak(z, s, ceiling);
@@ -479,6 +536,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
         if (!b.equals(s.breaking)) { cancelBreak(z, s); s.breaking = b; s.breakStart = now; }
         float h = Math.max(0.2f, b.getType().getHardness());
         long duration = (long) Math.max(800, Math.min(12_000, 700 + h * 1500));
+        if (!canBreak(s, b)) duration *= 2; // na mao: mais lento
         float progress = Math.min(1f, (now - s.breakStart) / (float) duration);
         z.swingMainHand();
         for (Player p : b.getWorld().getPlayers()) {
@@ -495,8 +553,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
     /** Quebra o bloco e guarda o drop no inventario (como se fosse com picareta); o que nao cabe cai no chao. */
     private void collect(State s, Block b) {
-        ItemStack t = tool(s);
-        java.util.Collection<ItemStack> drops = t == null ? b.getDrops() : b.getDrops(t);
+        java.util.Collection<ItemStack> drops = drops(s, b);
         Location c = b.getLocation().add(0.5, 0.5, 0.5);
         b.getWorld().spawnParticle(Particle.BLOCK, c, 25, 0.3, 0.3, 0.3, b.getBlockData());
         b.setType(Material.AIR);
@@ -517,14 +574,14 @@ final class SmartHorde implements org.bukkit.event.Listener {
      */
     private boolean gather(Zombie z, State s, Block feet, Vector dir, boolean nudge) {
         if (s.invTotal >= capacity()) return false;
-        if (s.breaking != null && canBreak(s, s.breaking)) { progressBreak(z, s, s.breaking); return true; } // termina o que comecou
+        if (s.breaking != null && breakable(s, s.breaking)) { progressBreak(z, s, s.breaking); return true; } // termina o que comecou
         Block best = null; double bestScore = Double.MAX_VALUE;
         for (int dx = -2; dx <= 2; dx++) for (int dz = -2; dz <= 2; dz++) for (int dyb = -1; dyb <= 1; dyb++) {
             if (dx == 0 && dz == 0) continue; // a propria coluna (chao/teto do pilar)
             Block b = feet.getRelative(dx, dyb, dz);
-            if (!canBreak(s, b)) continue;
+            if (!breakable(s, b)) continue;
             boolean useful = false;
-            for (ItemStack d : b.getDrops(tool(s))) if (buildable(d.getType())) { useful = true; break; }
+            for (ItemStack d : drops(s, b)) if (buildable(d.getType())) { useful = true; break; }
             if (!useful) continue;
             double score = b.getType().getHardness() + Math.abs(dx) + Math.abs(dz) * 0.5 + (dyb == 1 ? 0.5 : 0);
             if (score < bestScore) { bestScore = score; best = b; }
