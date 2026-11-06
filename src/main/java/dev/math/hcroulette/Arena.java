@@ -67,7 +67,8 @@ final class Arena implements Listener {
     private String strategy, tag, wave;
     private final List<double[]> path = new ArrayList<>(); // t(ms), x, y, z
     private int startTick, maxTicks, lastHurt, hits, built, broke, swings;
-    private double dmg;
+    private double dmg, minDist;
+    private int firstHit;
     private int pathIdx;
     private boolean watch; // assistir em velocidade normal (sem /tick sprint)
 
@@ -241,7 +242,7 @@ final class Arena implements Listener {
         HP.put(dummy.getUniqueId(), 20.0);
         strategy = strat; tag = tg; wave = name;
         startTick = Bukkit.getCurrentTick(); maxTicks = secs * 20; lastHurt = -9999;
-        hits = built = broke = swings = 0; dmg = 0; pathIdx = 0;
+        hits = built = broke = swings = 0; dmg = 0; pathIdx = 0; minDist = 1e9; firstHit = -1;
         horde.spawnExact(world, spots, roles, dummy);
         if (!watch) Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tick sprint " + maxTicks);
         for (org.bukkit.entity.Player pl : Bukkit.getOnlinePlayers()) watchPlayer(pl);
@@ -263,6 +264,7 @@ final class Arena implements Listener {
             case "smart" -> { pillar(t); breakStruct(t); fight(t); }
             default -> { }
         }
+        if (t % 10 == 0) { Zombie nz = nearest(64); if (nz != null) minDist = Math.min(minDist, nz.getLocation().distance(dummy.getLocation())); }
         if (hp(id) <= 0) { finish("morreu"); return; }
         if (t >= maxTicks) { finish("tempo"); return; }
         if (horde.alive() == 0) { finish("horda morta"); return; }
@@ -362,6 +364,7 @@ final class Arena implements Listener {
         dmg += d;
         hits++;
         lastHurt = Bukkit.getCurrentTick() - startTick;
+        if (firstHit < 0) firstHit = lastHurt;
     }
 
     @EventHandler
@@ -383,8 +386,8 @@ final class Arena implements Listener {
         dummy = null;
         String json = String.format(java.util.Locale.ROOT,
                 "{\"wave\":\"%s\",\"strategy\":\"%s\",\"tag\":\"%s\",\"end\":\"%s\",\"survival\":%.1f,\"died\":%b,\"dmg\":%.1f,"
-                        + "\"hits\":%d,\"zombies_alive\":%d,\"zombie_blocks_left\":%d,\"player_built\":%d,\"player_broke\":%d,\"swings\":%d,\"recording\":\"%s\"}",
-                wave, strategy, tag, why, t / 20.0, died, dmg, hits, st[0], st[1], built, broke, swings, rec);
+                        + "\"hits\":%d,\"zombies_alive\":%d,\"zombie_blocks_left\":%d,\"player_built\":%d,\"player_broke\":%d,\"swings\":%d,\"min_dist\":%.1f,\"first_hit\":%.1f,\"recording\":\"%s\"}",
+                wave, strategy, tag, why, t / 20.0, died, dmg, hits, st[0], st[1], built, broke, swings, minDist > 1e8 ? 99.0 : minDist, firstHit < 0 ? -1.0 : firstHit / 20.0, rec);
         plugin.getLogger().info("ARENA_RESULT " + json);
     }
 }

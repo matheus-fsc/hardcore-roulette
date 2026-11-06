@@ -143,6 +143,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
         plugin.getConfig().addDefault("horde.no-self-push", true);
         plugin.getConfig().addDefault("horde.ramp-wide-floating", true);
         plugin.getConfig().addDefault("horde.ramp-shapes", "straight,zigzag,spiral");
+        plugin.getConfig().addDefault("horde.dig-stairs", true);
         plugin.getConfig().addDefault("horde.ramp", true);
         plugin.getConfig().addDefault("horde.surround", true);
         plugin.getConfig().addDefault("horde.escape-ceiling", true);
@@ -523,6 +524,14 @@ final class SmartHorde implements org.bukkit.event.Listener {
         return best;
     }
 
+    /** Cavar escada: o que a ferramenta do papel quebra, ou terra/areia/cascalho na mao (nunca bloco da horda). */
+    private static boolean canDig(State s, Block b) {
+        if (ZPLACED.contains(b)) return false;
+        if (canBreak(s, b)) return true;
+        Material m = b.getType();
+        return !b.isPassable() && !PROTECTED.contains(m) && Tag.MINEABLE_SHOVEL.isTagged(m) && m.getHardness() >= 0 && m.getHardness() <= 0.6f;
+    }
+
     /** Quebravel pelo papel, ou na mao (terra, grama, areia, cascalho) quando em modo mao. */
     private static boolean breakable(State s, Block b) {
         if (canBreak(s, b)) return true;
@@ -596,6 +605,23 @@ final class SmartHorde implements org.bukkit.event.Listener {
                 return;
             }
         }
+        // 1c) parede de terra/pedra na frente e alvo acima: cava uma escadaria na parede (nao gasta bloco)
+        if (opt("dig-stairs") && dy >= 2 && wall && front.getType().isSolid() && !ZPLACED.contains(front)) {
+            Block[] clear = {frontHead, front.getRelative(BlockFace.UP, 2), feet.getRelative(BlockFace.UP, 2)};
+            boolean possible = true;
+            for (Block c : clear) if (!c.isPassable() && !canDig(s, c)) { possible = false; break; }
+            if (possible) {
+                for (Block c : clear) {
+                    if (!c.isPassable()) { progressBreak(z, s, c); s.action = "cavando escada na parede"; return; }
+                }
+                Location step = front.getLocation().add(0.5, 1.05, 0.5);
+                step.setYaw(zl.getYaw()); step.setPitch(zl.getPitch());
+                z.teleport(step); // sobe no degrau que ficou
+                z.setVelocity(new Vector(0, 0, 0));
+                s.action = "subiu degrau cavado";
+                return;
+            }
+        }
         // 1b) alvo acima e perto (ou parede na frente): sobe em pilar.
         //    Prioridade sobre cavar para o lado: cavar a parede nao ajuda a subir.
         if (dy >= 2 && (horiz < 3 || wall)) {
@@ -622,6 +648,24 @@ final class SmartHorde implements org.bukkit.event.Listener {
                 s.lastPlace = now;
             }
             return;
+        }
+        // 2a) alvo bem abaixo e longe na horizontal: escadaria cavada para baixo (diagonal), em vez de poco
+        if (opt("dig-stairs") && dy <= -2 && horiz >= 2) {
+            Block down = front.getRelative(BlockFace.DOWN);
+            Block[] clear = {frontHead, front, down};
+            boolean possible = down.getRelative(BlockFace.DOWN).getType().isSolid() || down.getRelative(0, -2, 0).getType().isSolid();
+            for (Block c : clear) if (possible && !c.isPassable() && !canDig(s, c)) possible = false;
+            if (possible) {
+                for (Block c : clear) {
+                    if (!c.isPassable() && c != frontHead) { progressBreak(z, s, c); s.action = "cavando escada para baixo"; return; }
+                }
+                Location step = down.getLocation().add(0.5, 0.05, 0.5);
+                step.setYaw(zl.getYaw()); step.setPitch(zl.getPitch());
+                z.teleport(step);
+                z.setVelocity(new Vector(0, 0, 0));
+                s.action = "desceu degrau cavado";
+                return;
+            }
         }
         // 2) obstaculo na frente (cabeca primeiro) ou cavar para baixo se o alvo esta embaixo
         Block obstacle = null;
