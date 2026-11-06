@@ -1364,7 +1364,10 @@ final class SmartHorde implements org.bukkit.event.Listener {
         }
         Block wc = r.waitCenter;
         int groundAtWait = groundY(wc.getWorld(), wc.getX(), wc.getZ()) + 1;
-        boolean onRamp = zl.getBlockY() > groundAtWait + 1;
+        // em cima da rampa = pisando num bloco da horda / degrau do plano (antes comparava com o chao do ponto de
+        // espera, que no zigue-zague caia num lugar baixo: todo mundo no chao achava que estava 'na rampa')
+        Block under = zl.getBlock().getRelative(BlockFace.DOWN);
+        boolean onRamp = ZPLACED.contains(under) || r.steps.contains(under);
         if (s.invTotal == 0 && onRamp) { // acabou o material la em cima: fica parado (descer cruza com o proximo e cai)
             z.getPathfinder().stopPathfinding();
             z.setVelocity(new Vector(0, Math.min(0, z.getVelocity().getY()), 0));
