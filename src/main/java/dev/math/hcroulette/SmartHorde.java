@@ -144,6 +144,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
         plugin.getConfig().addDefault("horde.ramp-wide-floating", true);
         plugin.getConfig().addDefault("horde.ramp-shapes", "straight,zigzag,spiral");
         plugin.getConfig().addDefault("horde.dig-stairs", true);
+        plugin.getConfig().addDefault("horde.warrior-escort", true);
         plugin.getConfig().addDefault("horde.ramp", true);
         plugin.getConfig().addDefault("horde.surround", true);
         plugin.getConfig().addDefault("horde.escape-ceiling", true);
@@ -353,6 +354,29 @@ final class SmartHorde implements org.bukkit.event.Listener {
             double dist = zl.distance(tl);
             long now = now();
 
+            // GUERREIROS (bruto/tanque): nao constroem. Com rampa em obra, esperam em formacao longe dela
+            // (antes ficavam colados nos construtores: 'lugar ocupado', empurrao e queda da ponta da rampa)
+            if (tool(s) == null && opt("warrior-escort")) {
+                Ramp wr = ramps.get(t.getUniqueId());
+                if (wr != null && !wr.broken && wr.next() >= 0 && tl.getY() - zl.getY() >= 2) {
+                    List<UUID> ws = new ArrayList<>();
+                    for (var en2 : horde.entrySet()) if (tool(en2.getValue()) == null && t.getUniqueId().equals(en2.getValue().target)) ws.add(en2.getKey());
+                    ws.sort(null);
+                    int k = Math.max(0, ws.indexOf(z.getUniqueId()));
+                    double ang = 2 * Math.PI * k / Math.max(1, ws.size());
+                    double rr = P("warrior_ring", 6);
+                    Block c = wr.waitCenter;
+                    int wx = (int) Math.round(c.getX() + Math.cos(ang) * rr), wz = (int) Math.round(c.getZ() + Math.sin(ang) * rr);
+                    Location spot = new Location(c.getWorld(), wx + 0.5, groundY(c.getWorld(), wx, wz) + 1, wz + 0.5);
+                    if (z.getTarget() != null) z.setTarget(null);
+                    s.rampMode = true;
+                    if (zl.distanceSquared(spot) > 4) z.getPathfinder().moveTo(spot, 1.0); else z.getPathfinder().stopPathfinding();
+                    s.action = "guerreiro aguardando a rampa";
+                    debug(z, s, dist, tl.getY() - zl.getY());
+                    continue;
+                }
+                if (s.rampMode) { s.rampMode = false; z.setTarget(t); s.action = "rampa pronta: ataque"; }
+            }
             // RAMPA DA HORDA: alvo bem acima -> todos constroem a mesma escadaria ate ele
             // histerese: entra na rampa com o alvo 3+ acima; so sai se ficar menos de 1 acima
             double dyR = tl.getY() - zl.getY();
