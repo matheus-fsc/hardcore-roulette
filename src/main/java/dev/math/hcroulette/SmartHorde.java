@@ -1118,8 +1118,11 @@ final class SmartHorde implements org.bukkit.event.Listener {
         UUID worker; // 1 construtor por vez na rampa (1 de largura: mais de um empurra e cai)
         UUID carrier; long carrierSince; // quem esta levando blocos ate o construtor
         long workerEmptySince;
+        final java.util.Set<Block> lanes; // faixa lateral e recuos (onde quem esta sem bloco espera fora do caminho)
         Ramp(Block player, List<Block> steps, Block entry, Block waitCenter, String desc) {
             this.player = player; this.steps = steps; this.entry = entry; this.waitCenter = waitCenter; this.desc = desc;
+            this.lanes = new java.util.HashSet<>(LANES);
+            LANES.clear();
         }
         int next() { for (int i = 0; i < steps.size(); i++) if (!steps.get(i).getType().isSolid()) return i; return -1; }
         Block stand(int i) { return i == 0 ? entry : steps.get(i - 1).getRelative(BlockFace.UP); }
@@ -1142,15 +1145,22 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
         /** Nova: melhor direcao cardinal (menos blocos e mais perto da horda). */
         /** Faixa extra ao lado do degrau (perpendicular a direcao) onde o degrau flutua: largura 2 no vao. */
+        /** Faixas/recuos da ultima geracao de rampa (thread principal; o construtor do Ramp copia e limpa). */
+        static final java.util.Set<Block> LANES = new java.util.HashSet<>();
+
         static void addLanes(List<Block> steps, List<BlockFace> dirs, boolean wide) {
+            LANES.clear();
             if (!wide) return;
             for (int i = steps.size() - 1; i >= 0; i--) {
                 Block st = steps.get(i);
-                if (!st.getRelative(BlockFace.DOWN).isPassable() || !st.getRelative(0, -2, 0).isPassable()) continue; // tem chao: 1 de largura
+                boolean floating = st.getRelative(BlockFace.DOWN).isPassable() && st.getRelative(0, -2, 0).isPassable();
+                // flutuando: faixa dupla; com chao: recuo lateral a cada 5 degraus (um sobe, o outro espera do lado)
+                if (!floating && i % 5 != 2) continue;
                 BlockFace f = dirs.get(i);
                 Block lane = st.getRelative(-f.getModZ(), 0, f.getModX());
                 steps.add(i + 1, lane);
                 dirs.add(i + 1, f);
+                LANES.add(lane);
             }
         }
 
@@ -1299,6 +1309,21 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
     private final Map<UUID, List<Ramp>> rampHistory = new HashMap<>();
 
+    /** Recuo/faixa lateral mais perto (ate 5 blocos, mesma altura +-1, livre em cima e sem ninguem). */
+    private static Block nearestBay(Ramp r, Zombie z) {
+        Location zl = z.getLocation();
+        Block best = null; double bd = 25;
+        for (Block b : r.lanes) {
+            if (b.getWorld() != zl.getWorld() || !b.getType().isSolid()) continue;
+            if (Math.abs(b.getY() + 1 - zl.getBlockY()) > 1) continue;
+            if (!b.getRelative(BlockFace.UP).isPassable() || !b.getRelative(0, 2, 0).isPassable()) continue;
+            if (occupied(b.getRelative(BlockFace.UP), z)) continue;
+            double d = b.getLocation().add(0.5, 1, 0.5).distanceSquared(zl);
+            if (d < bd) { bd = d; best = b; }
+        }
+        return best;
+    }
+
     private Ramp rampFor(LivingEntity t) {
         Ramp r = ramps.get(t.getUniqueId());
         Block pb = t.getLocation().getBlock();
@@ -1397,10 +1422,21 @@ final class SmartHorde implements org.bukkit.event.Listener {
             z.setVelocity(new Vector(0, Math.min(0, z.getVelocity().getY()), 0));
             if (z.getUniqueId().equals(r.worker)) {
                 if (r.workerEmptySince == 0) r.workerEmptySince = now;
-                // ninguem trouxe bloco em 25 s: larga a vez (outro sobe com material)
-                if (now - r.workerEmptySince > Pi("worker_empty_ms", 25_000)) { r.worker = null; r.workerEmptySince = 0; }
-                s.action = "construtor esperando entrega";
-            } else s.action = "parado na rampa (sem blocos)";
+                Block bay = nearestBay(r, z);
+                if (bay != null && now - r.workerEmptySince <= Pi("worker_empty_ms", 25_000)) {
+                    Location top = bay.getLocation().add(0.5, 1.05, 0.5);
+                    if (zl.distance(top) > 0.6) {
+                        if (zl.distance(top) <= 1.7) { top.setYaw(zl.getYaw()); z.teleport(top); z.setVelocity(new Vector(0, 0, 0)); }
+                        else z.getPathfinder().moveTo(top, 1.0);
+                    }
+                    s.action = "construtor no recuo (esperando entrega)";
+                    return true;
+                }
+                r.worker = null; r.workerEmptySince = 0; // sem recuo ou ninguem trouxe: larga a vez
+            }
+            // sem bloco em cima da rampa: desce e vai coletar (parado aqui so trava o caminho de 1 de largura)
+            z.getPathfinder().moveTo(r.entry.getLocation().add(0.5, 0, 0.5), 1.0);
+            s.action = "descendo da rampa para coletar";
             return true;
         }
         if (s.invTotal == 0) {
