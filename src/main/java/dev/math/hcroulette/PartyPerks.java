@@ -28,8 +28,8 @@ import java.util.UUID;
  *
  * - A cada 15 min online vivos sem ninguem da party morrer, a party ganha XP (valor por membro online).
  *   A sequencia zera quando a party morre; o NIVEL fica (progresso que sobrevive a morte).
- * - Bonus por nivel (efeitos renovados a cada 5 s): 2 +10% XP compartilhado, 3 regeneracao perto de membro,
- *   4 velocidade, 5 +2 coracoes, 6 resistencia, 7+ pressa.
+ * - Bonus por nivel = alcance do XP compartilhado: 32, 48, 64, 96, 128, 256 blocos; nivel 7 (max) infinito.
+ *   Sem efeitos de pocao (eram fortes demais).
  * - XP de habilidade (AuraSkills) de um membro e repassado em parte para os membros vivos num raio.
  */
 final class PartyPerks implements Listener {
@@ -48,12 +48,19 @@ final class PartyPerks implements Listener {
         c.addDefault("party.share-radius", 32);
         Bukkit.getPluginManager().registerEvents(this, plugin);
         Bukkit.getScheduler().runTaskTimer(plugin, this::minuteTick, 1200L, 1200L);
-        Bukkit.getScheduler().runTaskTimer(plugin, this::perkTick, 100L, 100L);
         hookAuraSkills();
     }
 
     // ------------------------------------------------------------------ nivel da party
-    static int need(int level) { return 100 * level; } // XP para passar do nivel atual
+    /** XP para passar do nivel atual: 100*n ate o 5; os 3 ultimos (alcance ilimitado) sao bem mais caros. */
+    static int need(int level) {
+        return switch (level) {
+            case 6 -> 2500;
+            case 7 -> 5000;
+            case 8 -> 10000;
+            default -> level >= 9 ? Integer.MAX_VALUE : 100 * level;
+        };
+    }
 
     private void minuteTick() {
         if (!parties.enabled()) return;
@@ -75,56 +82,45 @@ final class PartyPerks implements Listener {
         int lvl = parties.pLevel(id);
         int xp = parties.pXp(id) + gain;
         boolean up = false;
-        while (xp >= need(lvl)) { xp -= need(lvl); lvl++; up = true; }
+        while (lvl < MAX_LEVEL && xp >= need(lvl)) { xp -= need(lvl); lvl++; up = true; }
+        if (lvl >= MAX_LEVEL) xp = 0; // maximo: nao acumula
         parties.setPLevel(id, lvl, xp);
         for (Player p : on) {
-            p.sendMessage(Component.text("✦ Party +" + gain + " XP por ficarem vivos juntos (" + xp + "/" + need(lvl) + ")", NamedTextColor.AQUA));
+            p.sendMessage(Component.text("✦ Party +" + gain + " XP por ficarem vivos juntos" + (lvl >= MAX_LEVEL ? " (nivel maximo)" : " (" + xp + "/" + need(lvl) + ")"), NamedTextColor.AQUA));
             if (up) {
                 p.showTitle(net.kyori.adventure.title.Title.title(Component.text("Party nivel " + lvl, NamedTextColor.GOLD, TextDecoration.BOLD),
-                        Component.text(bonusText(lvl), NamedTextColor.YELLOW)));
+                        Component.text("XP compartilhado: " + rangeText(lvl), NamedTextColor.YELLOW)));
                 p.playSound(p.getLocation(), org.bukkit.Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.8f, 1f);
             }
         }
     }
 
-    // ------------------------------------------------------------------ bonus
-    static double xpBonus(int lvl) { return lvl >= 2 ? 0.10 * (1 + (lvl - 2) / 3) : 0; }
+    // ------------------------------------------------------------------ bonus: alcance do XP compartilhado
+    static final int MAX_LEVEL = 9;
+    private static final int[] RANGE = {0, 32, 48, 64, 96, 128, 256};
 
-    static String bonusText(int lvl) {
-        return switch (Math.min(lvl, 7)) {
-            case 1 -> "sem bonus ainda";
-            case 2 -> "+10% XP compartilhado";
-            case 3 -> "regeneracao perto da party";
-            case 4 -> "velocidade";
-            case 5 -> "+2 coracoes";
-            case 6 -> "resistencia";
-            default -> "pressa";
-        };
+    /** Alcance em blocos ate o nivel 6; do 7 em diante e ilimitado (-1), com regra de dimensao em inRange. */
+    static int range(int lvl) { return lvl >= 7 ? -1 : RANGE[Math.max(1, Math.min(6, lvl))]; }
+
+    static String rangeText(int lvl) {
+        if (lvl >= 9) return "ilimitado em todas as dimensoes";
+        if (lvl == 8) return "ilimitado no overworld + nether";
+        if (lvl == 7) return "ilimitado na mesma dimensao";
+        return range(lvl) + " blocos";
     }
 
-    private void perkTick() {
-        if (!parties.enabled()) return;
-        int radius = plugin.getConfig().getInt("party.share-radius", 32);
-        for (String id : parties.partyIds()) {
-            int lvl = parties.pLevel(id);
-            if (lvl < 3) continue;
-            List<Player> on = parties.onlineAlive(id);
-            for (Player p : on) {
-                boolean near = false;
-                for (Player o : on) if (o != p && o.getWorld() == p.getWorld() && o.getLocation().distanceSquared(p.getLocation()) <= radius * radius) { near = true; break; }
-                if (near) give(p, PotionEffectType.REGENERATION, 0);
-                if (lvl >= 4) give(p, PotionEffectType.SPEED, 0);
-                if (lvl >= 5) give(p, PotionEffectType.HEALTH_BOOST, 0);
-                if (lvl >= 6) give(p, PotionEffectType.RESISTANCE, 0);
-                if (lvl >= 7) give(p, PotionEffectType.HASTE, 0);
-            }
+    /** Quem recebe o XP: 1-6 mesma dimensao e no raio; 7 mesma dimensao; 8 overworld e nether juntos; 9 todas. */
+    static boolean inRange(Player from, Player to, int lvl) {
+        if (lvl >= 9) return true;
+        boolean same = from.getWorld() == to.getWorld();
+        if (lvl == 8) {
+            if (same) return true;
+            var a = from.getWorld().getEnvironment(); var b = to.getWorld().getEnvironment();
+            return a != org.bukkit.World.Environment.THE_END && b != org.bukkit.World.Environment.THE_END;
         }
-    }
-
-    private static void give(Player p, PotionEffectType t, int amp) {
-        PotionEffect cur = p.getPotionEffect(t);
-        if (cur != null && cur.getAmplifier() > amp && cur.getDuration() > 120) return; // nao sobrescreve pocao mais forte
-        p.addPotionEffect(new PotionEffect(t, 140, amp, true, false, true));
+        if (lvl == 7) return same;
+        int r = range(lvl);
+        return same && from.getLocation().distanceSquared(to.getLocation()) <= (double) r * r;
     }
 
     // ------------------------------------------------------------------ XP compartilhado (AuraSkills, sem dependencia)
@@ -153,14 +149,14 @@ final class PartyPerks implements Listener {
                 skillName = String.valueOf(nid.getClass().getMethod("getKey").invoke(nid)).toLowerCase();
             }
             String id = parties.partyOf(p.getUniqueId());
-            int radius = plugin.getConfig().getInt("party.share-radius", 32);
-            double share = plugin.getConfig().getDouble("party.xp-share", 0.5) * (1 + xpBonus(parties.pLevel(id)));
+            int plvl = parties.pLevel(id);
+            double share = plugin.getConfig().getDouble("party.xp-share", 0.5);
             double give = Math.round(amount * share * 100) / 100.0;
             if (give < 0.01) return;
             sharing = true;
             try {
                 for (Player o : parties.onlineAlive(id)) {
-                    if (o == p || o.getWorld() != p.getWorld() || o.getLocation().distanceSquared(p.getLocation()) > radius * radius) continue;
+                    if (o == p || !inRange(p, o, plvl)) continue;
                     Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skills xp add " + o.getName() + " " + skillName + " " + give + " silent");
                 }
             } finally { sharing = false; }
@@ -195,7 +191,7 @@ final class PartyPerks implements Listener {
         long streak = parties.streak(id);
         List<Component> info = new ArrayList<>();
         info.add(Component.text("World #" + parties.level(id), NamedTextColor.RED));
-        info.add(Component.text("Nivel da party: " + lvl + "  (" + xp + "/" + need(lvl) + " XP)", NamedTextColor.GOLD));
+        info.add(Component.text("Nivel da party: " + lvl + (lvl >= MAX_LEVEL ? " (maximo)" : "  (" + xp + "/" + need(lvl) + " XP)"), NamedTextColor.GOLD));
         info.add(Component.text(bar(xp, need(lvl)), NamedTextColor.GREEN));
         info.add(Component.text("Vivos juntos ha " + HardcoreRoulette.fmtAlive(streak) + " | proximo XP em "
                 + HardcoreRoulette.fmtAlive(block - streak % block), NamedTextColor.AQUA));
@@ -209,12 +205,13 @@ final class PartyPerks implements Listener {
         inv.setItem(13, item(Material.PLAYER_HEAD, Component.text("Convidar jogador", NamedTextColor.GREEN, TextDecoration.BOLD),
                 List.of(Component.text("Clique para escolher quem convidar", NamedTextColor.GRAY))));
         List<Component> bl = new ArrayList<>();
-        for (int i = 2; i <= 7; i++)
-            bl.add(Component.text((lvl >= i ? "✔ " : "✖ ") + "Nivel " + i + (i == 7 ? "+" : "") + ": " + bonusText(i), lvl >= i ? NamedTextColor.GREEN : NamedTextColor.DARK_GRAY));
+        bl.add(Component.text("XP do RPG dividido (50%) com quem esta no alcance:", NamedTextColor.GRAY));
+        for (int i = 1; i <= MAX_LEVEL; i++)
+            bl.add(Component.text((lvl >= i ? (lvl == i || (i == MAX_LEVEL && lvl > i) ? "➤ " : "✔ ") : "✖ ") + "Nivel " + i + (i == MAX_LEVEL ? " (max)" : "") + ": " + rangeText(i),
+                    lvl >= i ? NamedTextColor.GREEN : NamedTextColor.DARK_GRAY));
         bl.add(Component.empty());
-        bl.add(Component.text("XP a cada " + block / 60 + " min vivos sem ninguem morrer", NamedTextColor.GRAY));
-        bl.add(Component.text("XP do RPG dividido com quem esta a " + plugin.getConfig().getInt("party.share-radius", 32) + " blocos", NamedTextColor.GRAY));
-        inv.setItem(15, item(Material.NETHER_STAR, Component.text("Bonus da party", NamedTextColor.AQUA, TextDecoration.BOLD), bl));
+        bl.add(Component.text("Party ganha XP a cada " + block / 60 + " min vivos sem ninguem morrer", NamedTextColor.GRAY));
+        inv.setItem(15, item(Material.NETHER_STAR, Component.text("Alcance do XP compartilhado", NamedTextColor.AQUA, TextDecoration.BOLD), bl));
         if (parties.hasInvite(p.getUniqueId()))
             inv.setItem(21, item(Material.WRITABLE_BOOK, Component.text("Aceitar convite", NamedTextColor.GREEN, TextDecoration.BOLD),
                     List.of(Component.text(parties.inviteLabel(p.getUniqueId()), NamedTextColor.GRAY))));

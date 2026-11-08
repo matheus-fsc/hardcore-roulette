@@ -46,6 +46,10 @@ commands:
     description: Arena de teste da horda (so com arena-mode)
     usage: /arena load|run|stop
     permission: hcroulette.admin
+  anuncio:
+    description: Anuncios automaticos no chat
+    usage: /anuncio add <texto> | lista | remover <n> | agora
+    permission: hcroulette.admin
 permissions:
   hcroulette.admin:
     default: op

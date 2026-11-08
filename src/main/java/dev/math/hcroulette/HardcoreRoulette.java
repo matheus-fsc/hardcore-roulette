@@ -94,6 +94,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
     // ---------------------------------------------------------------- ciclo de vida
 
     private Arena arena;
+    private Announcer announcer;
 
     @Override
     public void onEnable() {
@@ -128,6 +129,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         coords = new Coords(this);
         parties = new Parties(this);
         parties.perks = new PartyPerks(this, parties);
+        announcer = new Announcer(this);
         // tag do mundo no Tab (atualiza mudancas de mundo/portal)
         Bukkit.getScheduler().runTaskTimer(this, () -> { for (Player p : Bukkit.getOnlinePlayers()) updateTab(p); }, 100L, 100L);
         if (parties.enabled()) Bukkit.getScheduler().runTaskLater(this, parties::prepareAhead, 600L);
@@ -1199,6 +1201,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
             return true;
         }
         if (arena != null) return true; // na arena os outros comandos nao existem
+        if (cmd.getName().equalsIgnoreCase("anuncio")) { if (announcer != null) announcer.command(sender, args); return true; }
         switch (cmd.getName().toLowerCase()) {
             case "vote" -> {
                 if (!(sender instanceof Player p)) return true;
