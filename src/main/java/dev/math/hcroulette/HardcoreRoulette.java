@@ -559,15 +559,18 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
     private void updateBoard() {
         if (!getConfig().getBoolean("scoreboard.enabled", true)) return;
         var sb = Bukkit.getScoreboardManager().getMainScoreboard();
-        boolean online = boardPhase++ % 2 == 0; // alterna a cada atualizacao (10 s)
-        String id = online ? "hc_top_online" : "hc_top_vivo";
-        var obj = sb.getObjective(id);
-        if (obj != null) obj.unregister();
-        obj = sb.registerNewObjective(id, org.bukkit.scoreboard.Criteria.DUMMY,
+        int mode = boardPhase++ % 3; // 0 online, 1 recorde vivo, 2 mortes (troca a cada 10 s)
+        boolean online = mode == 0, deaths = mode == 2;
+        String[] ids3 = {"hc_top_online", "hc_top_vivo", "hc_top_mortes"};
+        String id = ids3[mode];
+        for (String o : ids3) { var old = sb.getObjective(o); if (old != null) old.unregister(); }
+        var obj = sb.registerNewObjective(id, org.bukkit.scoreboard.Criteria.DUMMY,
                 online ? Component.text("⏱ Tempo online", NamedTextColor.GOLD, TextDecoration.BOLD)
+                        : deaths ? Component.text("☠ Top mortes", NamedTextColor.DARK_RED, TextDecoration.BOLD)
                         : Component.text("♥ Recorde vivo", NamedTextColor.RED, TextDecoration.BOLD));
         List<UUID> ids = new ArrayList<>(stats.keySet());
         java.util.function.ToLongFunction<UUID> val = online ? this::playSeconds
+                : deaths ? u -> stats(u).deaths
                 : u -> Math.max(stats(u).bestLifeSeconds, stats(u).lifeSeconds);
         ids.sort(Comparator.comparingLong(val).reversed());
         int shown = 0;
@@ -578,14 +581,12 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
             boolean on = Bukkit.getPlayer(u) != null;
             var score = obj.getScore((on ? "§a" : "§7") + name);
             score.setScore((int) Math.min(Integer.MAX_VALUE, v));
-            String txt = online ? fmtAlive(v) : fmtAlive(v) + (Bukkit.getPlayer(u) != null && stats(u).lifeSeconds >= stats(u).bestLifeSeconds && v > 0 ? " ★" : "");
+            String txt = deaths ? v + (v == 1 ? " morte" : " mortes") : online ? fmtAlive(v) : fmtAlive(v) + (Bukkit.getPlayer(u) != null && stats(u).lifeSeconds >= stats(u).bestLifeSeconds && v > 0 ? " ★" : "");
             try { score.numberFormat(io.papermc.paper.scoreboard.numbers.NumberFormat.fixed(Component.text(txt, NamedTextColor.YELLOW))); }
             catch (Throwable ignored) { }
             shown++;
         }
         obj.setDisplaySlot(org.bukkit.scoreboard.DisplaySlot.SIDEBAR);
-        var other = sb.getObjective(online ? "hc_top_vivo" : "hc_top_online");
-        if (other != null) other.unregister();
     }
 
     private void dayTick() {
