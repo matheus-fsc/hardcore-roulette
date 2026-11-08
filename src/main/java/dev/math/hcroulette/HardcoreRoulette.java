@@ -95,6 +95,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
 
     private Arena arena;
     private Announcer announcer;
+    private NetherHorde netherHorde;
 
     @Override
     public void onEnable() {
@@ -131,6 +132,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         parties.perks = new PartyPerks(this, parties);
         parties.preloadAll(); // mundos das parties prontos antes de alguem entrar
         announcer = new Announcer(this);
+        netherHorde = new NetherHorde(this);
         // tag do mundo no Tab (atualiza mudancas de mundo/portal)
         Bukkit.getScheduler().runTaskTimer(this, () -> { for (Player p : Bukkit.getOnlinePlayers()) updateTab(p); }, 100L, 100L);
         if (parties.enabled()) Bukkit.getScheduler().runTaskLater(this, parties::prepareAhead, 600L);
@@ -1295,6 +1297,12 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
             case "invasao" -> {
                 if (args.length == 0 || args[0].equalsIgnoreCase("status")) {
                     sender.sendMessage(Component.text("Invasao: " + invasion.status() + "  |  /invasao <zumbis|piratas|guilda> [qtd]  |  /invasao parar", NamedTextColor.GOLD));
+                } else if (args[0].equalsIgnoreCase("nether")) { // teste: /invasao nether [alvo]
+                    Player t = args.length > 1 ? Bukkit.getPlayerExact(args[1]) : (sender instanceof Player sp ? sp : null);
+                    if (t == null || t.getWorld().getEnvironment() != org.bukkit.World.Environment.NETHER) {
+                        sender.sendMessage(Component.text("O alvo precisa estar no Nether.", NamedTextColor.RED)); return true;
+                    }
+                    netherHorde.forceStart(t);
                 } else if (args[0].equalsIgnoreCase("parar")) {
                     invasion.finish(Component.text("A invasao foi encerrada por " + sender.getName() + ".", NamedTextColor.GRAY));
                 } else {

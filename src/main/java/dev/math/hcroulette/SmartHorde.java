@@ -192,6 +192,51 @@ final class SmartHorde implements org.bukkit.event.Listener {
         if (task == null) task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 10L, 10L);
     }
 
+    /**
+     * Horda do Nether: zumbificados com o MESMO cerebro da horda (papeis, rampa, escada cavada, cerco),
+     * armadura de ouro completa e sempre bravos. Nao grava (a gravacao e das ondas de zumbi).
+     */
+    List<UUID> spawnPigs(World w, List<Location> spots, int count, LivingEntity target) {
+        int[] cycle = {MINER, DIGGER, LUMBER, BRUTE, TANK};
+        List<UUID> ids = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            Location base = spots.get(i % spots.size()).clone();
+            final int role = cycle[i % cycle.length];
+            org.bukkit.entity.PigZombie z = w.spawn(base, org.bukkit.entity.PigZombie.class, zz -> {
+                setup(zz, role, target);
+                zz.setAngry(true);
+                zz.setAnger(Integer.MAX_VALUE);
+                goldArmor(zz.getEquipment());
+                if (role == BRUTE && zz.getEquipment() != null) zz.getEquipment().setItemInMainHand(new ItemStack(Material.GOLDEN_SWORD));
+            });
+            State s = new State();
+            s.role = role;
+            s.target = target.getUniqueId();
+            horde.put(z.getUniqueId(), s);
+            ids.add(z.getUniqueId());
+            w.spawnParticle(Particle.FLAME, base.clone().add(0, 1, 0), 10, 0.3, 0.6, 0.3, 0.01);
+        }
+        if (task == null) task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 10L, 10L);
+        return ids;
+    }
+
+    static void goldArmor(EntityEquipment eq) {
+        if (eq == null) return;
+        eq.setHelmet(new ItemStack(Material.GOLDEN_HELMET));
+        eq.setChestplate(new ItemStack(Material.GOLDEN_CHESTPLATE));
+        eq.setLeggings(new ItemStack(Material.GOLDEN_LEGGINGS));
+        eq.setBoots(new ItemStack(Material.GOLDEN_BOOTS));
+        eq.setHelmetDropChance(0.05f); eq.setChestplateDropChance(0.05f);
+        eq.setLeggingsDropChance(0.05f); eq.setBootsDropChance(0.05f);
+    }
+
+    /** Membros vivos (para seguir o jogador pelo portal). */
+    List<Zombie> members() {
+        List<Zombie> out = new ArrayList<>();
+        for (UUID id : horde.keySet()) { Entity e = Bukkit.getEntity(id); if (e instanceof Zombie z && z.isValid() && !z.isDead()) out.add(z); }
+        return out;
+    }
+
     /** Arena: recria uma onda gravada (cada zumbi no lugar e papel de onde comecou). */
     List<UUID> spawnExact(World w, List<Location> spots, List<Integer> roles, LivingEntity target) {
         List<UUID> ids = new ArrayList<>();
