@@ -127,6 +127,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(this, this);
         coords = new Coords(this);
         parties = new Parties(this);
+        parties.perks = new PartyPerks(this, parties);
         // tag do mundo no Tab (atualiza mudancas de mundo/portal)
         Bukkit.getScheduler().runTaskTimer(this, () -> { for (Player p : Bukkit.getOnlinePlayers()) updateTab(p); }, 100L, 100L);
         if (parties.enabled()) Bukkit.getScheduler().runTaskLater(this, parties::prepareAhead, 600L);

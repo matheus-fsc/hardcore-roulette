@@ -397,8 +397,11 @@ public final class Invasion implements Listener {
                 horde.spawn(w, found, count, target, buildersOnly);
                 spawned = count;
                 targetId = target.getUniqueId();
-                startFlares();
-                announce(f, count, target, found.get(0));
+                // sem foguete/sinalizador (era debug) e sem titulo na tela: so o aviso no chat
+                Bukkit.broadcast(Component.text("🧟 A horda sente seu cheiro...", NamedTextColor.DARK_GREEN, TextDecoration.ITALIC));
+                for (Player p : Bukkit.getOnlinePlayers()) if (!isBot(p)) p.playSound(p.getLocation(), Sound.ENTITY_ZOMBIE_AMBIENT, 0.6f, 0.7f);
+                plugin.getLogger().info("Invasao zumbis x" + count + " em " + found.get(0).getBlockX() + "," + found.get(0).getBlockY() + "," + found.get(0).getBlockZ()
+                        + " alvo " + target.getName());
                 return;
             }
             for (int i = 0; i < count; i++) slots.put(f.prefix + (i + 1), found.get(i % found.size()));
@@ -426,6 +429,13 @@ public final class Invasion implements Listener {
         Bukkit.broadcast(Component.text(f.title + " ", f.color, TextDecoration.BOLD)
                 .append(Component.text(count + " inimigos indo atras de " + target.getName() + ", vindo do " + direction(target.getLocation(), c) + "!", NamedTextColor.WHITE).decoration(TextDecoration.BOLD, false)));
         plugin.getLogger().info("Invasao " + f.id() + " x" + count + " em " + c.getBlockX() + "," + c.getBlockY() + "," + c.getBlockZ());
+    }
+
+    /** Jogador de verdade morreu: a invasao acaba e a horda some (nao fica cacando quem sobrou/o mundo novo). */
+    @org.bukkit.event.EventHandler(priority = org.bukkit.event.EventPriority.MONITOR)
+    public void onRealDeath(org.bukkit.event.entity.PlayerDeathEvent e) {
+        if (active == null || isBot(e.getEntity())) return;
+        Bukkit.getScheduler().runTask(plugin, () -> finish(Component.text("☠ A horda se dispersa depois da morte de " + e.getEntity().getName() + ".", NamedTextColor.GRAY)));
     }
 
     public void finish(Component msg) {

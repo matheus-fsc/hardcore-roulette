@@ -49,6 +49,32 @@ final class Parties {
 
     boolean enabled() { return "party".equalsIgnoreCase(plugin.getConfig().getString("mode", "votacao")); }
 
+    PartyPerks perks; // menu, nivel e bonus (setado pelo plugin)
+
+    // ---------------------------------------------------------------- acesso para o PartyPerks
+    List<String> partyIds() {
+        var sec = data.getConfigurationSection("party");
+        return sec == null ? List.of() : new ArrayList<>(sec.getKeys(false));
+    }
+    String partyOf(UUID u) { return partyId(u); }
+    String labelOf(String id) { return label(id); }
+    List<UUID> memberList(String id) { return members(id); }
+    List<Player> onlineAlive(String id) {
+        List<Player> out = new ArrayList<>();
+        for (UUID u : members(id)) { Player m = Bukkit.getPlayer(u); if (m != null && PartyPerks.aliveSurvival(m)) out.add(m); }
+        return out;
+    }
+    long streak(String id) { return data.getLong("party." + id + ".streak", 0); }
+    void setStreak(String id, long secs) { data.set("party." + id + ".streak", secs); save(); }
+    int pLevel(String id) { return Math.max(1, data.getInt("party." + id + ".plevel", 1)); }
+    int pXp(String id) { return data.getInt("party." + id + ".pxp", 0); }
+    void setPLevel(String id, int lvl, int xp) { data.set("party." + id + ".plevel", lvl); data.set("party." + id + ".pxp", xp); save(); }
+    boolean hasInvite(UUID u) {
+        Long at = inviteAt.get(u);
+        return invites.containsKey(u) && at != null && System.currentTimeMillis() - at <= 120_000;
+    }
+    String inviteLabel(UUID u) { String t = invites.get(u); return t == null ? "" : label(t) + " (World #" + level(t) + ")"; }
+
     void save() {
         try { data.save(file); } catch (IOException e) { plugin.getLogger().warning("parties: " + e.getMessage()); }
     }
@@ -147,6 +173,9 @@ final class Parties {
         World w = ensureLevel(next);
         Location spawn = spawnOf(w);
         Bukkit.broadcast(reason);
+        if (members(id).size() > 1)
+            Bukkit.broadcast(Component.text("☠ " + label(id) + " caiu junta: um morreu, todos morreram.", NamedTextColor.DARK_RED));
+        if (perks != null) perks.onPartyDeath(id);
         Bukkit.broadcast(Component.text("➜ " + label(id) + " avanca para o ", NamedTextColor.GOLD)
                 .append(Component.text("World #" + next, NamedTextColor.RED, TextDecoration.BOLD)));
         for (UUID u : members(id)) {
@@ -206,6 +235,7 @@ final class Parties {
     // ---------------------------------------------------------------- comandos
 
     boolean command(Player p, String[] args) {
+        if ((args.length == 0 || args[0].equalsIgnoreCase("menu")) && perks != null) { perks.open(p); return true; }
         String sub = args.length == 0 ? "info" : args[0].toLowerCase();
         String my = partyId(p.getUniqueId());
         switch (sub) {
