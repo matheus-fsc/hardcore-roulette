@@ -1004,17 +1004,25 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
 
     /** Quem entra depois de um reset (ou pela primeira vez) recomeca no mundo atual. */
     /** Tag no Tab: [W#3] Nick (party) ou [#12] Nick (votacao/lobotomia). */
+    @org.bukkit.event.EventHandler
+    public void onChangeWorld(org.bukkit.event.player.PlayerChangedWorldEvent e) {
+        Bukkit.getScheduler().runTaskLater(this, () -> updateTab(e.getPlayer()), 2L); // tag muda na hora ao trocar de dimensao
+    }
+
     void updateTab(Player p) {
         if (invasion != null && invasion.isBot(p)) return;
-        String tag;
-        NamedTextColor color;
+        // numero do mundo: no modo party o World da party (hc_L<n>), senao a run
+        String num;
         if (partyMode()) {
             String base = baseOf(p.getWorld().getName());
-            tag = base.startsWith("hc_L") ? "W#" + base.substring(4) : "W#?";
-            color = NamedTextColor.RED;
-        } else {
-            tag = "#" + run;
-            color = NamedTextColor.GOLD;
+            num = base.toLowerCase().startsWith("hc_l") ? base.substring(4) : "?";
+        } else num = String.valueOf(run);
+        // dimensao: overworld W# verde, nether N# vermelho, end END# roxo
+        String tag; NamedTextColor color;
+        switch (p.getWorld().getEnvironment()) {
+            case NETHER -> { tag = "N#" + num; color = NamedTextColor.RED; }
+            case THE_END -> { tag = "END#" + num; color = NamedTextColor.DARK_PURPLE; }
+            default -> { tag = "W#" + num; color = NamedTextColor.GREEN; }
         }
         p.playerListName(Component.text("[" + tag + "] ", color).append(Component.text(p.getName(), NamedTextColor.WHITE)));
     }
