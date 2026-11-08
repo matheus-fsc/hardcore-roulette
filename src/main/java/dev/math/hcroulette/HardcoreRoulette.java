@@ -931,12 +931,38 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         for (PotionEffect e : p.getActivePotionEffects()) p.removePotionEffect(e.getType());
     }
 
+    /** Copia inventario, armadura, ender chest e XP para inv-backups/<nick>/<data>.yml (ultimos 20 por jogador). */
+    void backupInventory(Player p) {
+        try {
+            File dir = new File(getDataFolder(), "inv-backups/" + p.getName());
+            dir.mkdirs();
+            var y = new org.bukkit.configuration.file.YamlConfiguration();
+            y.set("uuid", p.getUniqueId().toString());
+            y.set("world", p.getWorld().getName());
+            y.set("location", p.getLocation());
+            y.set("xp-level", p.getLevel());
+            y.set("xp-progress", p.getExp());
+            y.set("inventory", java.util.Arrays.asList(p.getInventory().getContents()));
+            y.set("enderchest", java.util.Arrays.asList(p.getEnderChest().getContents()));
+            if (p.getInventory().isEmpty() && p.getLevel() == 0) return; // nada a guardar
+            y.save(new File(dir, new java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(new java.util.Date()) + ".yml"));
+            File[] all = dir.listFiles((d, n) -> n.endsWith(".yml"));
+            if (all != null && all.length > 20) {
+                java.util.Arrays.sort(all);
+                for (int i = 0; i < all.length - 20; i++) all[i].delete();
+            }
+        } catch (Exception ex) {
+            getLogger().warning("backup de inventario de " + p.getName() + ": " + ex.getMessage());
+        }
+    }
+
     void resetPlayer(Player p, Location spawn) {
         if (p.isDead()) p.spigot().respawn();
         inTransit.add(p.getUniqueId());
         graceUntil.put(p.getUniqueId(), System.currentTimeMillis() + GRACE_MS);
         p.setFallDistance(0f);
         p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+        backupInventory(p); // antes de apagar: da para desfazer qualquer reset
         wipeItems(p);
         p.setGameMode(GameMode.SURVIVAL);
         AttributeInstance max = p.getAttribute(Attribute.MAX_HEALTH);

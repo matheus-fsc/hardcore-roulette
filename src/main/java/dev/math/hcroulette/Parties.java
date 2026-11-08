@@ -89,7 +89,22 @@ final class Parties {
         return data.getLong(k);
     }
 
+    /** Alias: party.world-alias.<n> aponta o World #n para um mundo existente (ex.: recuperado do lobotomia). */
+    private String alias(int lvl) { return plugin.getConfig().getString("party.world-alias." + lvl); }
+
+    private boolean isPartyWorld(String base) {
+        if (base.startsWith("hc_L") || base.startsWith("hc_l")) return true;
+        var sec = plugin.getConfig().getConfigurationSection("party.world-alias");
+        if (sec != null) for (String k : sec.getKeys(false)) if (base.equalsIgnoreCase(sec.getString(k))) return true;
+        return false;
+    }
+
     World ensureLevel(int lvl) {
+        String al = alias(lvl);
+        if (al != null) { // mundo existente: carrega como esta (com a seed dele)
+            World w = Bukkit.getWorld(al);
+            return w != null ? w : plugin.createWorld(al, null);
+        }
         World w = Bukkit.getWorld(worldName(lvl));
         if (w != null) return w;
         w = plugin.createWorld(worldName(lvl), seedFor(lvl)); // carrega do disco se ja existir
@@ -139,7 +154,7 @@ final class Parties {
     World busiestWorld() {
         World best = null; int n = -1;
         for (World w : Bukkit.getWorlds()) {
-            if (!w.getName().startsWith("hc_L") || w.getName().contains("_nether") || w.getName().contains("_the_end")) continue;
+            if (!isPartyWorld(w.getName()) || w.getName().contains("_nether") || w.getName().contains("_the_end")) continue;
             int c = w.getPlayers().size();
             if (c > n) { n = c; best = w; }
         }
