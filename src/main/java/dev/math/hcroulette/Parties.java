@@ -199,8 +199,12 @@ final class Parties {
             Player m = Bukkit.getPlayer(u);
             bestLevel(u, next);
             if (m == null) continue; // offline: reseta quando entrar
-            plugin.resetPlayer(m, spawn);
             m.getPersistentDataContainer().set(lvlKey, PersistentDataType.INTEGER, next);
+            if (m.equals(dead)) {
+                // quem morreu: respawn forcado DENTRO do PlayerDeathEvent dessincroniza o cliente (fica "lagado" ate relogar).
+                // espera a morte terminar de ser processada e so entao respawna + teleporta.
+                Bukkit.getScheduler().runTaskLater(plugin, () -> { if (m.isOnline()) plugin.resetPlayer(m, spawn); }, 2L);
+            } else plugin.resetPlayer(m, spawn);
         }
         Bukkit.getScheduler().runTaskLater(plugin, this::prepareAhead, 400L); // longe do momento da morte
         Bukkit.getScheduler().runTaskLater(plugin, this::housekeeping, 600L);
