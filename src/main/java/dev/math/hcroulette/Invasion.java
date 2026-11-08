@@ -142,7 +142,11 @@ public final class Invasion implements Listener {
         c.addDefault("invasion.enabled", true);
         c.addDefault("invasion.controller-url", "http://127.0.0.1:8765");
         c.addDefault("invasion.token", UUID.randomUUID().toString());
-        c.addDefault("invasion.chance.zumbis", 0.35);
+        c.addDefault("invasion.chance.zumbis", 0.25);
+        // dificuldade crescente: quanto mais tempo a run esta viva, maior a chance e a horda
+        c.addDefault("invasion.ramp.chance-per-hour", 0.12);
+        c.addDefault("invasion.ramp.max-chance", 0.90);
+        c.addDefault("invasion.ramp.size-per-hour", 4);
         c.addDefault("invasion.chance.piratas", 0.12);
         c.addDefault("invasion.chance.guilda", 0.10);
         c.addDefault("invasion.min-day", 1);
@@ -309,7 +313,10 @@ public final class Invasion implements Listener {
         long key;
         if (t >= 13000 && t < 13400) {          // anoitecer: zumbis
             key = day * 2 + 1;
-            if (key != lastRollKey && ThreadLocalRandom.current().nextDouble() < c.getDouble("invasion.chance.zumbis")) roll = Faction.ZUMBIS;
+            double hours = plugin.runAliveSeconds() / 3600.0;
+            double chance = Math.min(c.getDouble("invasion.ramp.max-chance", 0.9),
+                    c.getDouble("invasion.chance.zumbis") + hours * c.getDouble("invasion.ramp.chance-per-hour", 0.12));
+            if (key != lastRollKey && ThreadLocalRandom.current().nextDouble() < chance) roll = Faction.ZUMBIS;
         } else if (t >= 1000 && t < 1400) {     // manha: piratas ou guilda
             key = day * 2;
             if (key != lastRollKey) {
@@ -364,7 +371,8 @@ public final class Invasion implements Listener {
         forced = !autoRoll;
         int n = forcedCount != null ? forcedCount : switch (f) {
             // horda cresce com os jogadores e com os dias sobrevividos
-            case ZUMBIS -> (int) Math.min(25, Math.max(4, targets.size() * 3 + 2 + day / 2));
+            case ZUMBIS -> (int) Math.min(40, Math.max(4, targets.size() * 3 + 2 + day / 2
+                    + plugin.runAliveSeconds() / 3600.0 * plugin.getConfig().getDouble("invasion.ramp.size-per-hour", 4)));
             case PIRATAS -> Math.min(8, Math.max(3, targets.size() * 2 + 2));
             case GUILDA -> Math.min(6, Math.max(3, targets.size() * 2 + 1));
         };

@@ -193,7 +193,8 @@ final class SmartHorde implements org.bukkit.event.Listener {
     }
 
     /** Arena: recria uma onda gravada (cada zumbi no lugar e papel de onde comecou). */
-    void spawnExact(World w, List<Location> spots, List<Integer> roles, LivingEntity target) {
+    List<UUID> spawnExact(World w, List<Location> spots, List<Integer> roles, LivingEntity target) {
+        List<UUID> ids = new ArrayList<>();
         for (int i = 0; i < spots.size(); i++) {
             Location base = spots.get(i);
             final int role = roles.get(i);
@@ -202,14 +203,38 @@ final class SmartHorde implements org.bukkit.event.Listener {
             s.role = role;
             s.target = target.getUniqueId();
             horde.put(z.getUniqueId(), s);
+            ids.add(z.getUniqueId());
         }
-        if (REC == null && plugin.getConfig().getBoolean("horde.record", true)) {
+        if (REC == null && plugin.getConfig().getBoolean("horde.record", true) && plugin.getConfig().getInt("arena-slots", 1) <= 1) {
             int low = target.getLocation().getBlockY();
             for (Location l : spots) low = Math.min(low, l.getBlockY());
             try { REC = new WaveRecorder(plugin, w, target.getLocation(), "arena", low); }
             catch (Exception ex) { plugin.getLogger().warning("gravador: " + ex); }
         }
         if (task == null) task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 10L, 10L);
+        return ids;
+    }
+
+    /** Arena: vivos e blocos carregados so dos zumbis desta rodada. */
+    int[] statsFor(java.util.Collection<UUID> ids) {
+        int alive = 0, blocks = 0;
+        for (UUID id : ids) {
+            Entity e = Bukkit.getEntity(id);
+            State st = horde.get(id);
+            if (e == null || e.isDead() || !e.isValid() || st == null) continue;
+            alive++;
+            blocks += st.invTotal;
+        }
+        return new int[]{alive, blocks};
+    }
+
+    /** Arena: tira so os zumbis desta rodada (as outras seguem). */
+    void removeAll(java.util.Collection<UUID> ids) {
+        for (UUID id : ids) {
+            Entity e = Bukkit.getEntity(id);
+            if (e != null) e.remove();
+            horde.remove(id);
+        }
     }
 
     /** Arena: estatisticas do fim da rodada. */

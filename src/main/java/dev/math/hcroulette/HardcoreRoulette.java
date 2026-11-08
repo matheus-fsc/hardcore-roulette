@@ -101,6 +101,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         getConfig().addDefault("on-death-commands", List.of("skills skill reset {player}"));
         getConfig().addDefault("mode", "votacao");
         getConfig().addDefault("pregen-radius", 300);
+        getConfig().addDefault("scoreboard.enabled", true);
         getConfig().options().copyDefaults(true);
         if (getConfig().getBoolean("arena-mode", false)) { // servidor de teste: so horda + comandos da arena
             arena = new Arena(this);
@@ -456,6 +457,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         int deaths;
         long playSeconds;
         long lifeSeconds; // tempo jogado (online, em survival) na vida atual
+        long bestLifeSeconds; // recorde de vida
         double lifeDamage;
         double bestLifeDamage;
         double best() { return Math.max(bestLifeDamage, lifeDamage); }
@@ -486,6 +488,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
                 s.lifeDamage = y.getDouble(key + ".life-damage");
                 s.bestLifeDamage = y.getDouble(key + ".best-life-damage");
                 s.lifeSeconds = y.getLong(key + ".life-seconds");
+                s.bestLifeSeconds = y.getLong(key + ".best-life-seconds");
             } catch (IllegalArgumentException ignored) { }
         }
     }
@@ -507,6 +510,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
             y.set(k + ".life-damage", s.lifeDamage);
             y.set(k + ".best-life-damage", s.bestLifeDamage);
             y.set(k + ".life-seconds", s.lifeSeconds);
+            y.set(k + ".best-life-seconds", Math.max(s.bestLifeSeconds, s.lifeSeconds));
         }
         try { y.save(statsFile); } catch (IOException ex) { getLogger().warning("Falha ao salvar stats: " + ex.getMessage()); }
     }
@@ -516,6 +520,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         Stats s = stats(id);
         s.bestLifeDamage = s.best();
         s.lifeDamage = 0;
+        s.bestLifeSeconds = Math.max(s.bestLifeSeconds, s.lifeSeconds);
         s.lifeSeconds = 0;
     }
 
@@ -541,7 +546,50 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
     }
 
     /** Roda a cada segundo: soma tempo de vida e anuncia mudanca de periodo do dia. */
+    /** Tempo vivo da run: a maior vida atual entre quem esta online no mundo da run (segundos). */
+    long runAliveSeconds() {
+        long m = 0;
+        for (Player p : humans()) m = Math.max(m, stats(p.getUniqueId()).lifeSeconds);
+        return m;
+    }
+
+    // ---------------------------------------------------------------- placar lateral (alterna a cada 10 s)
+    private int boardPhase, boardTick;
+
+    private void updateBoard() {
+        if (!getConfig().getBoolean("scoreboard.enabled", true)) return;
+        var sb = Bukkit.getScoreboardManager().getMainScoreboard();
+        boolean online = boardPhase++ % 2 == 0; // alterna a cada atualizacao (10 s)
+        String id = online ? "hc_top_online" : "hc_top_vivo";
+        var obj = sb.getObjective(id);
+        if (obj != null) obj.unregister();
+        obj = sb.registerNewObjective(id, org.bukkit.scoreboard.Criteria.DUMMY,
+                online ? Component.text("⏱ Tempo online", NamedTextColor.GOLD, TextDecoration.BOLD)
+                        : Component.text("♥ Recorde vivo", NamedTextColor.RED, TextDecoration.BOLD));
+        List<UUID> ids = new ArrayList<>(stats.keySet());
+        java.util.function.ToLongFunction<UUID> val = online ? this::playSeconds
+                : u -> Math.max(stats(u).bestLifeSeconds, stats(u).lifeSeconds);
+        ids.sort(Comparator.comparingLong(val).reversed());
+        int shown = 0;
+        for (UUID u : ids) {
+            long v = val.applyAsLong(u);
+            if (v <= 0 || shown >= 10) continue;
+            String name = stats(u).name;
+            boolean on = Bukkit.getPlayer(u) != null;
+            var score = obj.getScore((on ? "§a" : "§7") + name);
+            score.setScore((int) Math.min(Integer.MAX_VALUE, v));
+            String txt = online ? fmtAlive(v) : fmtAlive(v) + (Bukkit.getPlayer(u) != null && stats(u).lifeSeconds >= stats(u).bestLifeSeconds && v > 0 ? " ★" : "");
+            try { score.numberFormat(io.papermc.paper.scoreboard.numbers.NumberFormat.fixed(Component.text(txt, NamedTextColor.YELLOW))); }
+            catch (Throwable ignored) { }
+            shown++;
+        }
+        obj.setDisplaySlot(org.bukkit.scoreboard.DisplaySlot.SIDEBAR);
+        var other = sb.getObjective(online ? "hc_top_vivo" : "hc_top_online");
+        if (other != null) other.unregister();
+    }
+
     private void dayTick() {
+        if (boardTick++ % 10 == 0) updateBoard();
         for (Player p : humans()) {
             GameMode gm = p.getGameMode();
             if (!p.isDead() && (gm == GameMode.SURVIVAL || gm == GameMode.ADVENTURE)) stats(p.getUniqueId()).lifeSeconds++;
