@@ -96,6 +96,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
     private Arena arena;
     private Announcer announcer;
     private NetherHorde netherHorde;
+    private AuthGate auth;
 
     @Override
     public void onEnable() {
@@ -133,6 +134,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         parties.preloadAll(); // mundos das parties prontos antes de alguem entrar
         announcer = new Announcer(this);
         netherHorde = new NetherHorde(this);
+        auth = new AuthGate(this);
         // tag do mundo no Tab (atualiza mudancas de mundo/portal)
         Bukkit.getScheduler().runTaskTimer(this, () -> { for (Player p : Bukkit.getOnlinePlayers()) updateTab(p); }, 100L, 100L);
         if (parties.enabled()) Bukkit.getScheduler().runTaskLater(this, parties::prepareAhead, 600L);
@@ -1205,6 +1207,12 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
             return true;
         }
         if (arena != null) return true; // na arena os outros comandos nao existem
+        String cn = cmd.getName().toLowerCase();
+        if ((cn.equals("login") || cn.equals("register") || cn.equals("senha")) && sender instanceof Player ap && auth != null) return auth.command(ap, cn, args);
+        if (cn.equals("authreset") && auth != null) {
+            if (args.length < 1) { sender.sendMessage(Component.text("/authreset <nick>", NamedTextColor.RED)); return true; }
+            auth.reset(args[0]); sender.sendMessage(Component.text("Senha de " + args[0] + " apagada.", NamedTextColor.GREEN)); return true;
+        }
         if (cmd.getName().equalsIgnoreCase("anuncio")) { if (announcer != null) announcer.command(sender, args); return true; }
         switch (cmd.getName().toLowerCase()) {
             case "vote" -> {

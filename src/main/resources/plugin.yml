@@ -50,6 +50,21 @@ commands:
     description: Anuncios automaticos no chat
     usage: /anuncio add <texto> | lista | remover <n> | agora
     permission: hcroulette.admin
+  login:
+    description: Entrar com a senha
+    usage: /login <senha>
+    aliases: [l]
+  register:
+    description: Criar a senha (primeira vez)
+    usage: /register <senha> <senha>
+    aliases: [reg]
+  senha:
+    description: Trocar a senha
+    usage: /senha <atual> <nova>
+  authreset:
+    description: Apagar a senha de um jogador
+    usage: /authreset <nick>
+    permission: hcroulette.admin
 permissions:
   hcroulette.admin:
     default: op
