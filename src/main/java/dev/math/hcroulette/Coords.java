@@ -77,6 +77,11 @@ final class Coords {
 
     boolean command(Player p, String[] args, int run) {
         String sub = args.length == 0 ? "" : args[0].toLowerCase(Locale.ROOT);
+        // aceita tambem em ingles: /coord save|public|list|show|delete
+        sub = switch (sub) { case "save", "set", "add" -> "salvar"; case "public", "share" -> "publico";
+            case "list" -> "lista"; case "show" -> "mostrar"; case "delete", "del", "remove" -> "apagar"; default -> sub; };
+        // nome entre aspas ("base principal"): tira as aspas
+        for (int i = 1; i < args.length; i++) args[i] = args[i].replace("\"", "");
         Location l = p.getLocation();
         int x = l.getBlockX(), y = l.getBlockY(), z = l.getBlockZ();
         String world = l.getWorld().getName();
