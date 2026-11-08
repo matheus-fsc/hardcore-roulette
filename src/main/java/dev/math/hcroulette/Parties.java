@@ -174,7 +174,9 @@ final class Parties {
             p.getPersistentDataContainer().set(lvlKey, PersistentDataType.INTEGER, lvl);
             p.sendMessage(Component.text("☠ Modo party: voce esta no World #" + lvl + ". Morreu alguem da sua party, voces vao juntos para o proximo.", NamedTextColor.GOLD));
         } else if (!HardcoreRoulette.baseOf(p.getWorld().getName()).equals(w.getName())) {
-            p.teleportAsync(spawnOf(w));
+            Location back = lastPos(p.getUniqueId());
+            boolean ok = back != null && HardcoreRoulette.baseOf(back.getWorld().getName()).equals(w.getName());
+            p.teleportAsync(ok ? back : spawnOf(w)); // volta para onde saiu (so cai no spawn sem posicao salva)
         }
         bestLevel(p.getUniqueId(), lvl);
         Bukkit.getScheduler().runTaskLater(plugin, this::prepareAhead, 200L);
@@ -232,6 +234,35 @@ final class Parties {
         ensureLevel(maxLevel() + 1);
     }
 
+    java.util.Set<Integer> levelsInUse() {
+        java.util.Set<Integer> out = new java.util.HashSet<>();
+        for (String id : partyIds()) out.add(level(id));
+        return out;
+    }
+
+    /** Carrega no boot os mundos de todas as parties (antes de alguem entrar). */
+    void preloadAll() {
+        if (!enabled()) return;
+        for (int lvl : levelsInUse()) ensureLevel(lvl);
+    }
+
+    /** Ao sair: guarda a posicao (se estava no mundo da party ou no nether/end dele). */
+    void rememberQuit(Player p) {
+        if (!enabled()) return;
+        var l = p.getLocation();
+        data.set("lastpos." + p.getUniqueId(), l.getWorld().getName() + ";" + l.getX() + ";" + l.getY() + ";" + l.getZ() + ";" + l.getYaw() + ";" + l.getPitch());
+        save();
+    }
+
+    private Location lastPos(UUID u) {
+        String s = data.getString("lastpos." + u);
+        if (s == null) return null;
+        String[] a = s.split(";");
+        World w = Bukkit.getWorld(a[0]);
+        if (w == null) return null;
+        return new Location(w, Double.parseDouble(a[1]), Double.parseDouble(a[2]), Double.parseDouble(a[3]), Float.parseFloat(a[4]), Float.parseFloat(a[5]));
+    }
+
     /** Descarrega niveis vazios e apaga os que todas as parties ja passaram. */
     void housekeeping() {
         if (!enabled()) return;
@@ -242,7 +273,9 @@ final class Parties {
             int lvl;
             try { lvl = Integer.parseInt(base.substring(4)); } catch (NumberFormatException e) { continue; }
             if (lvl < min) { plugin.trashWorld(base); continue; }
-            if (w.getPlayers().isEmpty() && lvl != ahead) Bukkit.unloadWorld(w, true);
+            // nao descarrega mundo onde alguma party esta: ao entrar, o mundo ja precisa estar carregado
+            // (senao o servidor joga o jogador no mundo padrao e a posicao se perde)
+            if (w.getPlayers().isEmpty() && lvl != ahead && !levelsInUse().contains(lvl)) Bukkit.unloadWorld(w, true);
         }
         plugin.cleanupTrashLater();
     }

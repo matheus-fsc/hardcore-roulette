@@ -129,6 +129,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         coords = new Coords(this);
         parties = new Parties(this);
         parties.perks = new PartyPerks(this, parties);
+        parties.preloadAll(); // mundos das parties prontos antes de alguem entrar
         announcer = new Announcer(this);
         // tag do mundo no Tab (atualiza mudancas de mundo/portal)
         Bukkit.getScheduler().runTaskTimer(this, () -> { for (Player p : Bukkit.getOnlinePlayers()) updateTab(p); }, 100L, 100L);
@@ -806,6 +807,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
+        if (parties != null) parties.rememberQuit(e.getPlayer());
         if (invasion.isBot(e.getPlayer())) { invasion.handleQuit(e); return; }
         Long start = sessionStart.remove(e.getPlayer().getUniqueId());
         if (start != null) stats(e.getPlayer().getUniqueId()).playSeconds += (System.currentTimeMillis() - start) / 1000;
