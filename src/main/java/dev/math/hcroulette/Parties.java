@@ -163,6 +163,22 @@ final class Parties {
 
     // ---------------------------------------------------------------- entrar / morrer
 
+    /** Posicao de um membro aleatorio da party, vivo e online no mundo (ou nether/end) da party; null se nao houver. */
+    private Location nearMate(String id, Player self, World w) {
+        List<Player> mates = new ArrayList<>();
+        for (UUID u : members(id)) {
+            Player m = Bukkit.getPlayer(u);
+            if (m == null || m.equals(self) || m.isDead()) continue;
+            if (m.getGameMode() != org.bukkit.GameMode.SURVIVAL && m.getGameMode() != org.bukkit.GameMode.ADVENTURE) continue;
+            if (!HardcoreRoulette.baseOf(m.getWorld().getName()).equals(w.getName())) continue;
+            mates.add(m);
+        }
+        if (mates.isEmpty()) return null;
+        Player m = mates.get(java.util.concurrent.ThreadLocalRandom.current().nextInt(mates.size()));
+        self.sendMessage(Component.text("➜ Voce chegou perto de " + m.getName() + ".", NamedTextColor.GREEN));
+        return m.getLocation().clone();
+    }
+
     /** Entrou: vai para o nivel da sua party (reseta se a party avancou enquanto estava fora). */
     void sync(Player p) {
         String id = partyId(p.getUniqueId());
@@ -170,13 +186,15 @@ final class Parties {
         World w = ensureLevel(lvl);
         Integer mine = p.getPersistentDataContainer().get(lvlKey, PersistentDataType.INTEGER);
         if (mine == null || mine != lvl) {
-            plugin.resetPlayer(p, spawnOf(w));
+            Location near = nearMate(id, p, w);
+            plugin.resetPlayer(p, near != null ? near : spawnOf(w));
             p.getPersistentDataContainer().set(lvlKey, PersistentDataType.INTEGER, lvl);
             p.sendMessage(Component.text("☠ Modo party: voce esta no World #" + lvl + ". Morreu alguem da sua party, voces vao juntos para o proximo.", NamedTextColor.GOLD));
         } else if (!HardcoreRoulette.baseOf(p.getWorld().getName()).equals(w.getName())) {
             Location back = lastPos(p.getUniqueId());
             boolean ok = back != null && HardcoreRoulette.baseOf(back.getWorld().getName()).equals(w.getName());
-            p.teleportAsync(ok ? back : spawnOf(w)); // volta para onde saiu (so cai no spawn sem posicao salva)
+            Location near = ok ? null : nearMate(id, p, w);
+            p.teleportAsync(ok ? back : near != null ? near : spawnOf(w)); // volta para onde saiu; sem posicao salva, perto de alguem da party
         }
         bestLevel(p.getUniqueId(), lvl);
         Bukkit.getScheduler().runTaskLater(plugin, this::prepareAhead, 200L);
