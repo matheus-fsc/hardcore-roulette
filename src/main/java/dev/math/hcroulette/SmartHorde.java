@@ -140,6 +140,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
         // vindos do simulador (horde-sim): cada um ligavel
         plugin.getConfig().addDefault("horde.log-to-planks", true);
         plugin.getConfig().addDefault("horde.record", true);
+        plugin.getConfig().addDefault("horde.emerge", true);
         plugin.getConfig().addDefault("horde.no-self-push", true);
         plugin.getConfig().addDefault("horde.ramp-wide-floating", true);
         plugin.getConfig().addDefault("horde.ramp-shapes", "straight,zigzag,spiral");
@@ -161,6 +162,60 @@ final class SmartHorde implements org.bukkit.event.Listener {
         horde.keySet().removeIf(id -> { Entity e = Bukkit.getEntity(id); return e == null || e.isDead() || !e.isValid(); });
         return horde.size();
     }
+
+    // ---------------------------------------------------------------- saindo da terra
+
+    /** Mobs no meio da animacao de sair do chao (a IA da horda espera). */
+    static final Set<UUID> EMERGING = new java.util.HashSet<>();
+
+    /**
+     * Animacao: o mob nasce enterrado e sobe ate {@code dest} em ~1,5 s, com particulas do bloco do chao
+     * e som de terra. Comeca depois de {@code delay} ticks (escalonado para nao subirem todos juntos).
+     * Parado, sem gravidade e invulneravel enquanto sobe; no fim volta ao normal.
+     */
+    void emerge(org.bukkit.entity.Mob m, Location dest, int delay) {
+        if (!plugin.getConfig().getBoolean("horde.emerge", true)) return;
+        Block ground = dest.clone().add(0, -0.5, 0).getBlock();
+        if (!ground.getType().isSolid() || ground.isLiquid() || dest.getBlock().isLiquid()) return; // sem chao: nasce normal
+        final int rise = 30;
+        final double depth = 2.2;
+        org.bukkit.block.data.BlockData dust = ground.getBlockData();
+        UUID id = m.getUniqueId();
+        EMERGING.add(id);
+        m.setAware(false);
+        m.setGravity(false);
+        m.setInvulnerable(true);
+        m.setSilent(true);
+        m.teleport(dest.clone().add(0, -depth, 0));
+        int[] t = {-Math.max(0, delay)};
+        Bukkit.getScheduler().runTaskTimer(plugin, task -> {
+            t[0]++;
+            if (!m.isValid() || m.isDead()) { EMERGING.remove(id); task.cancel(); return; }
+            World w = dest.getWorld();
+            if (t[0] <= 0) {
+                if (t[0] % 10 == 0) w.spawnParticle(Particle.BLOCK, dest.clone().add(0, 0.1, 0), 6, 0.3, 0.05, 0.3, dust);
+                return;
+            }
+            if (t[0] < rise) {
+                m.teleport(dest.clone().add(0, -depth + depth * t[0] / rise, 0));
+                w.spawnParticle(Particle.BLOCK, dest.clone().add(0, 0.1, 0), 8, 0.35, 0.1, 0.35, dust);
+                if (t[0] % 6 == 1) w.playSound(dest, dust.getSoundGroup().getBreakSound(), 0.8f, 0.6f);
+                return;
+            }
+            m.teleport(dest);
+            m.setGravity(true);
+            m.setInvulnerable(false);
+            m.setSilent(false);
+            m.setAware(true);
+            EMERGING.remove(id);
+            w.spawnParticle(Particle.BLOCK, dest.clone().add(0, 0.3, 0), 25, 0.4, 0.3, 0.4, dust);
+            w.playSound(dest, m instanceof org.bukkit.entity.PigZombie ? Sound.ENTITY_ZOMBIFIED_PIGLIN_ANGRY
+                    : m instanceof org.bukkit.entity.Piglin ? Sound.ENTITY_PIGLIN_ANGRY : Sound.ENTITY_ZOMBIE_AMBIENT, 1f, 0.7f);
+            task.cancel();
+        }, 1L, 1L);
+    }
+
+    private static int stagger() { return ThreadLocalRandom.current().nextInt(0, 50); }
 
     // ---------------------------------------------------------------- spawn / remover
 
@@ -185,7 +240,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             // inventario inicial por papel; o resto ele junta quebrando blocos no caminho
             // comecam sem blocos (vanilla): so colocam o que mineraram no caminho / antes de subir
             horde.put(z.getUniqueId(), s);
-            w.spawnParticle(Particle.LARGE_SMOKE, base.clone().add(0, 1, 0), 12, 0.3, 0.6, 0.3, 0.01);
+            emerge(z, base, stagger());
         }
         if (REC == null && plugin.getConfig().getBoolean("horde.record", true)) {
             int low = target.getLocation().getBlockY();
@@ -219,6 +274,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             horde.put(z.getUniqueId(), s);
             ids.add(z.getUniqueId());
             w.spawnParticle(Particle.FLAME, base.clone().add(0, 1, 0), 10, 0.3, 0.6, 0.3, 0.01);
+            emerge(z, base, stagger());
         }
         if (task == null) task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 10L, 10L);
         return ids;
@@ -418,6 +474,7 @@ final class SmartHorde implements org.bukkit.event.Listener {
             Map.Entry<UUID, State> en = it.next();
             Entity e = Bukkit.getEntity(en.getKey());
             if (!(e instanceof Zombie z) || z.isDead() || !z.isValid()) { it.remove(); continue; }
+            if (EMERGING.contains(z.getUniqueId())) continue; // ainda saindo da terra
             State s = en.getValue();
             s.tick++;
             LivingEntity t = pickTarget(z, s);

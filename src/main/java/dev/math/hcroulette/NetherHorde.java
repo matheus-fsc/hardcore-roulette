@@ -91,7 +91,11 @@ final class NetherHorde implements Listener {
         startedAt = System.currentTimeMillis();
         pigs.clear(); piglins.clear();
         pigs.addAll(horde.spawnPigs(w, spots, nPigs, p));
-        for (int i = 0; i < nPiglins; i++) piglins.add(spawnPiglin(spots.get(i % spots.size()), p).getUniqueId());
+        for (int i = 0; i < nPiglins; i++) {
+            Piglin pg = spawnPiglin(spots.get(i % spots.size()), p);
+            horde.emerge(pg, spots.get(i % spots.size()), java.util.concurrent.ThreadLocalRandom.current().nextInt(0, 50));
+            piglins.add(pg.getUniqueId());
+        }
         Bukkit.broadcast(Component.text("🔥 Os piglins sentiram o cheiro de ouro... a horda do Nether vem atras de " + p.getName() + ".",
                 NamedTextColor.GOLD, TextDecoration.ITALIC));
         for (Player o : w.getPlayers()) o.playSound(o.getLocation(), Sound.ENTITY_PIGLIN_ANGRY, 1f, 0.8f);
@@ -141,10 +145,19 @@ final class NetherHorde implements Listener {
         List<Location> around = spots(p.getLocation(), 10, 18, 16);
         if (around.isEmpty()) around = List.of(p.getLocation());
         int i = 0;
-        for (Zombie z : horde.members()) z.teleport(around.get(i++ % around.size()));
+        java.util.concurrent.ThreadLocalRandom r = java.util.concurrent.ThreadLocalRandom.current();
+        for (Zombie z : horde.members()) {
+            Location l = around.get(i++ % around.size());
+            z.teleport(l);
+            horde.emerge(z, l, r.nextInt(0, 50)); // saem da terra em volta do jogador
+        }
         for (UUID id : piglins) {
             Entity e = Bukkit.getEntity(id);
-            if (e instanceof Piglin pg && pg.isValid()) { pg.teleport(around.get(i++ % around.size())); pg.setTarget(p); }
+            if (e instanceof Piglin pg && pg.isValid()) {
+                Location l = around.get(i++ % around.size());
+                pg.teleport(l); pg.setTarget(p);
+                horde.emerge(pg, l, r.nextInt(0, 50));
+            }
         }
         Bukkit.broadcast(Component.text("🔥 A horda do Nether atravessou o portal atras de " + p.getName() + "!", NamedTextColor.RED, TextDecoration.ITALIC));
     }
