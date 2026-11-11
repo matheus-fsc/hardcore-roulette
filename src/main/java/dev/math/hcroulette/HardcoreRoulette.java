@@ -420,6 +420,32 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
 
     public boolean isVoting() { return voting; }
 
+    private final Map<String, Long> portalOmen = new HashMap<>();
+
+    /** Acender um portal do Nether no mundo da run: 2 raios, chuva e a noite cai na hora. */
+    @EventHandler(ignoreCancelled = true, priority = org.bukkit.event.EventPriority.MONITOR)
+    public void onPortalLit(org.bukkit.event.world.PortalCreateEvent e) {
+        World w = e.getWorld();
+        if (e.getReason() != org.bukkit.event.world.PortalCreateEvent.CreateReason.FIRE
+                || w.getEnvironment() != World.Environment.NORMAL || !w.getName().startsWith("hc_") || e.getBlocks().isEmpty()) return;
+        long now = System.currentTimeMillis();
+        Long last = portalOmen.get(w.getName());
+        if (last != null && now - last < 10 * 60_000L) return; // um presagio a cada 10 min por mundo
+        portalOmen.put(w.getName(), now);
+        double x = 0, y = 0, z = 0;
+        for (var st : e.getBlocks()) { x += st.getX(); y += st.getY(); z += st.getZ(); }
+        int n = e.getBlocks().size();
+        Location c = new Location(w, x / n + 0.5, y / n, z / n + 0.5);
+        w.strikeLightningEffect(c.clone().add(2.5, 0, 0));
+        Bukkit.getScheduler().runTaskLater(this, () -> w.strikeLightningEffect(c.clone().add(-2.5, 0, 1.5)), 12L);
+        w.setStorm(true);
+        w.setWeatherDuration(6000);
+        w.setTime(13000);
+        for (Player p : w.getPlayers())
+            p.sendMessage(Component.text("O ceu escurece. Algo do outro lado sentiu o portal abrir.", NamedTextColor.DARK_RED, net.kyori.adventure.text.format.TextDecoration.ITALIC));
+        getLogger().info("Portal do Nether aceso em " + w.getName() + " " + c.getBlockX() + "," + c.getBlockY() + "," + c.getBlockZ() + ": raios, chuva e noite");
+    }
+
     public World currentWorld() {
         if (partyMode()) return parties.busiestWorld();
         return current == null ? null : Bukkit.getWorld(current);
