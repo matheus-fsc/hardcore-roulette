@@ -168,7 +168,11 @@ final class SmartHorde implements org.bukkit.event.Listener {
 
     /** buildersOnly: so minerador/cavador/lenhador (onda de construtores). */
     void spawn(World w, List<Location> spots, int count, LivingEntity target, boolean buildersOnly) {
-        int[] cycle = buildersOnly ? new int[]{MINER, DIGGER, LUMBER} : new int[]{MINER, DIGGER, LUMBER, BRUTE, TANK};
+        spawn(w, spots, count, target, buildersOnly ? new int[]{MINER, DIGGER, LUMBER} : new int[]{MINER, DIGGER, LUMBER, BRUTE, TANK});
+    }
+
+    /** cycle: ordem dos papeis (define a mistura da horda). */
+    void spawn(World w, List<Location> spots, int count, LivingEntity target, int[] cycle) {
         for (int i = 0; i < count; i++) {
             Location base = spots.get(i % spots.size()).clone();
             Biome b = w.getBiome(base);

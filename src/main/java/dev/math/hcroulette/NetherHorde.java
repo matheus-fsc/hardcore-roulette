@@ -83,7 +83,7 @@ final class NetherHorde implements Listener {
         World w = p.getWorld();
         int inNether = (int) w.getPlayers().stream().filter(NetherHorde::real).count();
         double hours = plugin.runAliveSeconds() / 3600.0;
-        int total = (int) Math.max(6, Math.min(24, 6 + inNether * 3 + hours * 2));
+        int total = (int) Math.max(6, Math.min(18, 6 + inNether * 3 + hours * 1.5));
         int nPiglins = Math.max(2, total / 3), nPigs = total - nPiglins;
         List<Location> spots = spots(p.getLocation(), 24, 36, 12);
         if (spots.isEmpty()) { plugin.getLogger().info("Horda do Nether: sem lugar para nascer perto de " + p.getName()); return; }

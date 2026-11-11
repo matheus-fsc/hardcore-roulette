@@ -134,6 +134,44 @@ public final class Invasion implements Listener {
         if (flareTask != null) { flareTask.cancel(); flareTask = null; }
     }
     private long lastRollKey = -1;
+    private long lastHordeDay = -100;
+
+    /** Tipo de horda: muda a mistura de papeis, o tamanho e as mensagens de aviso. */
+    record Variant(String id, int[] cycle, double size, String warn, String dusk, String arrive, Sound sound) {}
+    static final Variant[] VARIANTS = {
+            new Variant("podridao", new int[]{SmartHorde.MINER, SmartHorde.DIGGER, SmartHorde.LUMBER, SmartHorde.BRUTE, SmartHorde.TANK}, 1.0,
+                    "Voce sente o cheiro de podridao no horizonte...",
+                    "O cheiro esta mais forte. Eles vem com a noite.",
+                    "A horda sente seu cheiro...", Sound.ENTITY_ZOMBIE_AMBIENT),
+            new Variant("picaretas", new int[]{SmartHorde.MINER, SmartHorde.DIGGER, SmartHorde.MINER, SmartHorde.DIGGER, SmartHorde.BRUTE}, 1.0,
+                    "Voce escuta o tinir de picaretas debaixo da terra...",
+                    "As picaretas estao mais perto. Paredes de pedra nao vao segurar.",
+                    "As picaretas param. Eles chegaram.", Sound.BLOCK_STONE_HIT),
+            new Variant("machados", new int[]{SmartHorde.LUMBER, SmartHorde.LUMBER, SmartHorde.MINER, SmartHorde.DIGGER, SmartHorde.BRUTE}, 1.0,
+                    "Arvores tombam ao longe, uma atras da outra...",
+                    "Eles estao juntando madeira. Ficar no alto nao vai salvar ninguem.",
+                    "Escadas e rampas surgem na escuridao.", Sound.ENTITY_ZOMBIE_BREAK_WOODEN_DOOR),
+            new Variant("passos", new int[]{SmartHorde.BRUTE, SmartHorde.TANK, SmartHorde.BRUTE, SmartHorde.MINER, SmartHorde.DIGGER}, 0.7,
+                    "O chao treme com passos pesados ao longe...",
+                    "Os passos estao mais perto. Sao poucos, mas sao grandes.",
+                    "Os brutos chegaram.", Sound.ENTITY_RAVAGER_STEP),
+    };
+    private Variant pending, nextVariant;
+    private long pendingDay = -1;
+    private boolean duskSent;
+
+    private void whisper(String msg, NamedTextColor color, Sound sound, World w) {
+        Bukkit.broadcast(Component.text(msg, color, TextDecoration.ITALIC));
+        for (Player p : realPlayers(w)) p.playSound(p.getLocation(), sound, 0.7f, 0.6f);
+    }
+
+    /** Ninguem dorme com horda anunciada ou em andamento (dormir pulava a noite e a horda). */
+    @EventHandler(ignoreCancelled = true)
+    public void onBed(org.bukkit.event.player.PlayerBedEnterEvent e) {
+        if (pending == null && active != Faction.ZUMBIS) return;
+        e.setCancelled(true);
+        e.getPlayer().sendActionBar(Component.text("Voce nao consegue dormir com a horda chegando.", NamedTextColor.RED));
+    }
 
     public Invasion(HardcoreRoulette plugin) {
         this.plugin = plugin;
@@ -144,9 +182,12 @@ public final class Invasion implements Listener {
         c.addDefault("invasion.token", UUID.randomUUID().toString());
         c.addDefault("invasion.chance.zumbis", 0.25);
         // dificuldade crescente: quanto mais tempo a run esta viva, maior a chance e a horda
-        c.addDefault("invasion.ramp.chance-per-hour", 0.12);
-        c.addDefault("invasion.ramp.max-chance", 0.90);
-        c.addDefault("invasion.ramp.size-per-hour", 4);
+        c.addDefault("invasion.ramp.chance-per-hour", 0.06);
+        c.addDefault("invasion.ramp.max-chance", 0.55);
+        c.addDefault("invasion.ramp.size-per-hour", 2);
+        c.addDefault("invasion.ramp.days-per-zombie", 4);
+        c.addDefault("invasion.max-zombies", 24);
+        c.addDefault("invasion.rest-nights", 1); // noites sem horda depois de uma horda
         c.addDefault("invasion.chance.piratas", 0.12);
         c.addDefault("invasion.chance.guilda", 0.10);
         c.addDefault("invasion.min-day", 1);
@@ -311,12 +352,34 @@ public final class Invasion implements Listener {
         long t = w.getTime();
         Faction roll = null;
         long key;
-        if (t >= 13000 && t < 13400) {          // anoitecer: zumbis
+        if (pending != null && pendingDay < day) pending = null; // aviso velho (dia pulado)
+        if (t >= 9000 && t < 9400) {            // tarde: sorteia e avisa (da tempo de preparar)
             key = day * 2 + 1;
+            if (key == lastRollKey) return;
+            lastRollKey = key;
             double hours = plugin.runAliveSeconds() / 3600.0;
             double chance = Math.min(c.getDouble("invasion.ramp.max-chance", 0.9),
                     c.getDouble("invasion.chance.zumbis") + hours * c.getDouble("invasion.ramp.chance-per-hour", 0.12));
-            if (key != lastRollKey && ThreadLocalRandom.current().nextDouble() < chance) roll = Faction.ZUMBIS;
+            boolean resting = day - lastHordeDay <= c.getInt("invasion.rest-nights", 1);
+            if (resting || ThreadLocalRandom.current().nextDouble() >= chance) return;
+            pending = VARIANTS[ThreadLocalRandom.current().nextInt(VARIANTS.length)];
+            pendingDay = day;
+            duskSent = false;
+            whisper(pending.warn(), NamedTextColor.DARK_GREEN, pending.sound(), w);
+            plugin.getLogger().info("Horda anunciada para a noite: " + pending.id());
+            return;
+        } else if (t >= 12000 && t < 12400) {   // por do sol: lembrete
+            if (pending != null && pendingDay == day && !duskSent) {
+                duskSent = true;
+                whisper(pending.dusk(), NamedTextColor.GOLD, pending.sound(), w);
+            }
+            return;
+        } else if (t >= 13000 && t < 13400) {   // anoitecer: a horda anunciada chega
+            if (pending == null || pendingDay != day) return;
+            key = day * 2 + 1;
+            nextVariant = pending;
+            pending = null;
+            roll = Faction.ZUMBIS;
         } else if (t >= 1000 && t < 1400) {     // manha: piratas ou guilda
             key = day * 2;
             if (key != lastRollKey) {
@@ -371,13 +434,17 @@ public final class Invasion implements Listener {
         forced = !autoRoll;
         int n = forcedCount != null ? forcedCount : switch (f) {
             // horda cresce com os jogadores e com os dias sobrevividos
-            case ZUMBIS -> (int) Math.min(40, Math.max(4, targets.size() * 3 + 2 + day / 2
-                    + plugin.runAliveSeconds() / 3600.0 * plugin.getConfig().getDouble("invasion.ramp.size-per-hour", 4)));
+            case ZUMBIS -> (int) Math.min(plugin.getConfig().getInt("invasion.max-zombies", 24), Math.max(4, (nextVariant == null ? 1.0 : nextVariant.size())
+                    * (targets.size() * 3 + 2
+                    + day / Math.max(1, plugin.getConfig().getInt("invasion.ramp.days-per-zombie", 4))
+                    + plugin.runAliveSeconds() / 3600.0 * plugin.getConfig().getDouble("invasion.ramp.size-per-hour", 2))));
             case PIRATAS -> Math.min(8, Math.max(3, targets.size() * 2 + 2));
             case GUILDA -> Math.min(6, Math.max(3, targets.size() * 2 + 1));
         };
         n = Math.max(1, Math.min(n, f == Faction.ZUMBIS ? 40 : 20));
         final int count = n;
+        final Variant variant = nextVariant != null ? nextVariant : VARIANTS[0];
+        nextVariant = null;
         active = f; // reserva enquanto faz o reconhecimento
         startedAt = System.currentTimeMillis();
         Player target = forcedTarget != null && targets.contains(forcedTarget) ? forcedTarget
@@ -394,13 +461,14 @@ public final class Invasion implements Listener {
             spawned = 0;
             startedAt = System.currentTimeMillis();
             if (f == Faction.ZUMBIS) { // horda com mobs do servidor (sem bots/controlador)
-                horde.spawn(w, found, count, target, buildersOnly);
+                lastHordeDay = w.getFullTime() / 24000L;
+                horde.spawn(w, found, count, target, buildersOnly ? new int[]{SmartHorde.MINER, SmartHorde.DIGGER, SmartHorde.LUMBER} : variant.cycle());
                 spawned = count;
                 targetId = target.getUniqueId();
                 // sem foguete/sinalizador (era debug) e sem titulo na tela: so o aviso no chat
-                Bukkit.broadcast(Component.text("🧟 A horda sente seu cheiro...", NamedTextColor.DARK_GREEN, TextDecoration.ITALIC));
+                Bukkit.broadcast(Component.text("🧟 " + variant.arrive(), NamedTextColor.DARK_GREEN, TextDecoration.ITALIC));
                 for (Player p : Bukkit.getOnlinePlayers()) if (!isBot(p)) p.playSound(p.getLocation(), Sound.ENTITY_ZOMBIE_AMBIENT, 0.6f, 0.7f);
-                plugin.getLogger().info("Invasao zumbis x" + count + " em " + found.get(0).getBlockX() + "," + found.get(0).getBlockY() + "," + found.get(0).getBlockZ()
+                plugin.getLogger().info("Invasao zumbis (" + variant.id() + ") x" + count + " em " + found.get(0).getBlockX() + "," + found.get(0).getBlockY() + "," + found.get(0).getBlockZ()
                         + " alvo " + target.getName());
                 return;
             }
