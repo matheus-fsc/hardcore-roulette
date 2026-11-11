@@ -420,6 +420,20 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
 
     public boolean isVoting() { return voting; }
 
+    /** API para outros plugins (classes): quem da party recebe XP compartilhado de {@code p}. */
+    public List<Player> xpShareTargets(Player p) {
+        if (parties == null || !parties.enabled()) return List.of();
+        String id = parties.partyOf(p.getUniqueId());
+        if (id == null) return List.of();
+        int lvl = parties.pLevel(id);
+        List<Player> out = new ArrayList<>();
+        for (Player o : parties.onlineAlive(id)) if (o != p && PartyPerks.inRange(p, o, lvl)) out.add(o);
+        return out;
+    }
+
+    /** Fracao do XP repassada para cada membro (party.xp-share). */
+    public double xpShareRatio() { return getConfig().getDouble("party.xp-share", 0.5); }
+
     private final Map<String, Long> portalOmen = new HashMap<>();
 
     /** Acender um portal do Nether no mundo da run: 2 raios, chuva e a noite cai na hora. */
