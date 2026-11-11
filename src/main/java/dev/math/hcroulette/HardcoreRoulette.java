@@ -140,6 +140,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         if (parties.enabled()) Bukkit.getScheduler().runTaskLater(this, parties::prepareAhead, 600L);
         invasion = new Invasion(this);
         getServer().getPluginManager().registerEvents(invasion, this);
+        new QuickFlask(this);
         Bukkit.getScheduler().runTaskTimer(this, this::dayTick, 20L, 20L);
         Bukkit.getScheduler().runTaskLater(this, this::refillPool, 100L);
         // reservas que ja existiam e ainda nao foram pre-renderizadas (uma por vez, espacadas)
