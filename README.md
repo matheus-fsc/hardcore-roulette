@@ -1,122 +1,127 @@
 # HardcoreRoulette
 
-Plugin Paper para **hardcore em grupo**: quando alguém morre, o mundo reseta para todos, com mundos reserva pré-gerados, votação de seed, modo party por níveis, invasões de facções controladas por bots e várias ferramentas para servidores pequenos entre amigos.
+**English** | [Português (pt-BR)](README.pt-BR.md)
 
-> Feito para **Paper 26.3** (Java 25). Mensagens em português (pt-BR).
+![Paper](https://img.shields.io/badge/Paper-26.3-blue) ![Java](https://img.shields.io/badge/Java-25-orange) ![Version](https://img.shields.io/badge/version-1.2.0-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-## Recursos
+A Paper plugin for **group hardcore**: when someone dies, the world resets for everyone. It ships with pre-generated backup worlds, seed voting, a party mode with levels, smart zombie hordes, and a set of tools for small servers among friends.
 
-### Reset de mundo
-- **Modo votação**: alguém morreu: contagem de 15 min (ou reset imediato quando todos votam). `/vote` abre um baú virtual com as seeds candidatas (bioma do spawn, votos).
-- **Modo lobotomia**: morreu, todo mundo vai na hora para um mundo aleatório. O próximo mundo é sorteado com antecedência e só ele é pré-renderizado.
-- **Modo party**: os mundos viram níveis (World #1, #2, …) com seeds fixas. Quem entra começa no #1; quando alguém da party morre, **só aquela party** avança junta. Várias parties podem dividir o mesmo nível.
-- **Mundos reserva pré-gerados** (spawn + [Chunky](https://modrinth.com/plugin/chunky) opcional) para o reset ser instantâneo.
-- Nether/End **por mundo** (portais ligados ao mundo da run).
-- Reset completo do jogador: inventário, ender chest, XP, efeitos, conquistas; quem estava offline é resetado ao entrar.
-- **Carência de 8 s** após o reset (sem dano de queda acumulada no mundo antigo, sem itens “vazando” entre mundos).
+> Built for **Paper 26.3** (Java 25). In-game text is in Brazilian Portuguese (pt-BR).
 
-### Jogadores
-- `/ranking`: pódio: mais mortes, menos mortes + tempo jogado, mais dano em uma vida.
-- `/dia` e anúncio automático de **Dia N: Manhã/Tarde/Noite** com o tempo vivo de cada jogador (formato cresce: `45s → 12min 30s → 2h 05min → 3d 4h`).
-- `/coord`: coordenadas salvas no servidor por run: privadas ou públicas, com distância e seta de direção, clique para copiar.
-- Tag do mundo no Tab: `[W#3] Nick` (party) ou `[#12] Nick`.
-- Skills (ex.: AuraSkills) resetam **só para quem morreu** via comandos configuráveis.
+## Features
 
-### Invasões de facções
-Inimigos controlados por bots externos ([minecraft-raiders](https://github.com/matheus-fsc/minecraft-raiders)):
-- **Zumbis**: mobs do próprio servidor (sem bots), à noite, com rastreio de até 128 blocos. Papéis com regra de ferramenta do vanilla: **minerador** (picareta de madeira) quebra e coloca pedra e o que a picareta de madeira minera; **cavador** (pá de madeira) quebra terra, grama, areia, cascalho e argila e coloca terra; **lenhador** (machado de madeira) quebra e coloca blocos de madeira; brutamontes e tanque só perseguem e lutam. Começam sem blocos e têm inventário com limite (`horde.block-capacity`): constroem pilares e pontes só com o que mineraram, trabalham em duas fases: **coleta** (calcula o material que a subida precisa e busca recursos expostos num raio de 10 blocos, 16 para árvores) e **ataque**; se acabar o material no meio, voltam a coletar. Soltam o inventário ao morrer. A horda se distribui entre os jogadores próximos (cada zumbi vai no jogador com menos zumbis em cima, ponderado pela distância). `horde.debug: true` registra fase, inventário e ação de cada zumbi a cada 5 s. O lenhador prepara as escadas no chão como um jogador: crafta uma bancada (4 tábuas) se não tiver, coloca do lado, crafta todas as escadas que a subida precisa (receita vanilla, ~4 tábuas = 3 escadas), guarda a bancada e prega as escadas na parede/penhasco; qualquer zumbi da horda que acha uma escada sobe por ela.
-- **Piratas**: de dia, saqueiam baús e fogem.
-- **Guilda inimiga**: atravessa o mapa minerando; neutra até ser provocada.
+### World reset
+- **Voting mode**: someone died, a 15 minute countdown starts (or an instant reset once everyone votes). `/vote` opens a virtual chest with the candidate seeds (spawn biome, votes).
+- **Lobotomy mode**: someone died, everyone goes straight to a random world. The next world is picked ahead of time and only that one is pre-rendered.
+- **Party mode**: worlds become levels (World #1, #2, ...) with fixed seeds. Everyone starts at #1; when someone in a party dies, **only that party** moves on together. Several parties can share the same level.
+- **Pre-generated backup worlds** (spawn plus optional [Chunky](https://modrinth.com/plugin/chunky)) so resets are instant.
+- Nether and End **per world** (portals linked to the run's world).
+- Full player reset: inventory, ender chest, XP, effects, advancements; offline players are reset when they join.
+- **8 second grace period** after a reset (no stored fall damage from the old world, no items leaking between worlds).
 
-O plugin faz o **reconhecimento do terreno** antes de spawnar (chão firme, céu aberto ou túneis escuros no modo caverna, rota sem penhasco/água larga até o alvo), equipa cada bot conforme o papel e envia um **flare** com a posição real dos jogadores a cada segundo. Nomes de bot só são aceitos vindos de `127.0.0.1` através do proxy.
+### Players
+- `/ranking`: podium for most deaths, fewest deaths plus play time, and most damage in a single life.
+- `/dia` and automatic **Day N: Morning/Afternoon/Night** announcements with each player's time alive.
+- `/coord`: coordinates saved on the server per run, private or public, with distance and a direction arrow.
+- World tag in the Tab list: `[W#3] Nick` (party) or `[#12] Nick`.
+- Skill plugins (for example AuraSkills) reset **only for whoever died**, through configurable commands.
+- **Nether portal omen**: lighting a portal brings lightning, rain and instant night.
+- **Quick Flask**: potion plus copper nugget makes a weaker potion you drink in half a second.
 
-### Infra
-- `/migrar [minutos]`: contagem regressiva e passagem do servidor para outra máquina (fallback), usando um arquivo `migrate.flag` que um launcher externo observa.
-- Whitelist Bedrock (Geyser/Floodgate): `/bwhitelist add <gamertag>`.
+### Zombie hordes
+Night hordes that dig, build and surround players:
+- Roles follow vanilla tool rules: the **miner** (wooden pickaxe) breaks and places stone, the **digger** (wooden shovel) handles dirt, sand and gravel, the **lumberjack** (wooden axe) handles wood; brutes and tanks only chase and fight.
+- They start with no blocks and a limited inventory (`horde.block-capacity`): pillars and bridges only use what they mined. They work in two phases, **gather** (compute how much material the climb needs and collect exposed resources nearby) and **attack**.
+- The lumberjack crafts a crafting table, crafts the stairs the climb needs and nails them to the wall; any horde zombie can climb them.
+- The horde spreads across nearby players and rises out of the ground with an animation. Afternoon warnings tell players what is coming.
+- Optional bot factions (pirates, an enemy guild) driven by an external controller ([minecraft-raiders](https://github.com/matheus-fsc/minecraft-raiders)).
 
-## Comandos
+### Infrastructure
+- `/migrar [minutes]`: countdown and hand-off of the server to another machine, through a `migrate.flag` file an external launcher watches.
+- Bedrock whitelist (Geyser/Floodgate): `/bwhitelist add <gamertag>`.
+- Login screen for offline-mode servers (`auth`).
 
-| Comando | Quem | Descrição |
+## Commands
+
+| Command | Who | Description |
 |---|---|---|
-| `/vote [n]` | todos | Menu de votação da próxima seed |
-| `/ranking` (`/podio`, `/metricas`) | todos | Pódio de estatísticas |
-| `/dia` | todos | Dia/período e tempo vivo |
-| `/coord [salvar\|publico\|lista\|mostrar\|apagar] <nome>` | todos | Coordenadas |
-| `/party [convidar <nick>\|aceitar\|sair\|lista]` | todos | Modo party |
-| `/hcstatus` | todos | Estado da run |
-| `/hcmodo <votacao\|lobotomia\|party>` | op | Troca o modo |
-| `/hcreset` | op | Força um reset/votação |
-| `/invasao <zumbis\|piratas\|guilda\|parar\|status> [qtd] [alvo] [construtores]` | op | Invasoes (`construtores` = onda so de minerador, cavador e lenhador) |
-| `/migrar [min\|cancelar]` | op | Migração para o fallback |
-| `/bwhitelist <add\|remove> <gamertag>` | op | Whitelist Bedrock |
-| `/hcreport` | op | Gera um relatorio para anexar num issue |
+| `/vote [n]` | everyone | Vote for the next seed |
+| `/ranking` (`/podio`, `/metricas`) | everyone | Statistics podium |
+| `/dia` | everyone | Day, period and time alive |
+| `/coord [salvar\|publico\|lista\|mostrar\|apagar] <name>` | everyone | Coordinates |
+| `/party [convidar <nick>\|aceitar\|sair\|lista]` | everyone | Party mode |
+| `/hcstatus` | everyone | Run status |
+| `/hcmodo <votacao\|lobotomia\|party>` | op | Switch mode |
+| `/hcreset` | op | Force a reset or vote |
+| `/invasao <zumbis\|piratas\|guilda\|parar\|status> [amount] [target] [construtores]` | op | Invasions (`construtores` = builders only: miner, digger and lumberjack) |
+| `/migrar [min\|cancelar]` | op | Migrate to the fallback machine |
+| `/bwhitelist <add\|remove> <gamertag>` | op | Bedrock whitelist |
+| `/hcreport` | op | Create a report to attach to an issue |
 
-## Configuração (`plugins/HardcoreRoulette/config.yml`)
+## Configuration (`plugins/HardcoreRoulette/config.yml`)
 
-Na primeira vez que o servidor liga, o plugin escreve o [config.yml](src/main/resources/config.yml) comentado, com todos os padrões. Chave nova que aparecer numa atualização é adicionada sozinha, sem mexer no que você já mudou.
+On first start the plugin writes a commented [config.yml](src/main/resources/config.yml) with every default. New keys from updates are added automatically without touching what you changed.
 
-| Seção | O que controla |
-|-------|----------------|
-| `server-name` | Nome no título do `/ranking` |
-| `worlds.prefix` | Prefixo dos mundos de run (padrão `hc_`; mude só antes da primeira run) |
-| `mode`, `pregen-radius`, `on-death-commands` | Modo de jogo, pré-carregamento com Chunky, comandos ao morrer |
-| `scoreboard`, `auth`, `announcements` | Placar lateral, tela de login, mensagens automáticas |
-| `party` | XP da party e divisão do XP de habilidade |
-| `invasion` | Horda noturna: chance, tamanho, rampa por horas de jogo, noites de descanso |
-| `nether-horde` | Zumbis-porco que seguem quem fica no Nether |
-| `horde` | IA da horda: sair da terra, cercar, rampas, cavar, escolta |
-| `portal-omen` | Raios, chuva e noite ao acender um portal do Nether |
-| `quick-flask` | Frasco Rápido: tempo de beber, duração e níveis perdidos |
-| `invasion.controller-url`, `invasion.token` | Ligação com o minecraft-raiders (o token é gerado sozinho) |
+| Section | What it controls |
+|---------|------------------|
+| `server-name` | Name shown in the `/ranking` title |
+| `worlds.prefix` | Run world prefix (default `hc_`; only change it before the first run) |
+| `mode`, `pregen-radius`, `on-death-commands` | Game mode, Chunky pre-generation, commands on death |
+| `scoreboard`, `auth`, `announcements` | Sidebar, login screen, automatic messages |
+| `party` | Party XP and skill XP sharing |
+| `invasion` | Night horde: chance, size, ramp by play time, rest nights |
+| `nether-horde` | Zombified piglins that follow players who stay in the Nether |
+| `horde` | Horde AI: rise from the ground, surround, ramps, digging, escorts |
+| `portal-omen` | Lightning, rain and night when a Nether portal is lit |
+| `quick-flask` | Quick Flask: drink time, duration and levels lost |
+| `invasion.controller-url`, `invasion.token` | Link to minecraft-raiders (the token is generated automatically) |
 
-Arquivo opcional `host.txt` na raiz do servidor (`pc` ou `vps`) identifica onde o servidor está rodando, para o `/migrar`.
+## Reporting a problem
 
-## Reportar um problema
+1. Run `/hcreport` (op; works from the console too).
+2. The plugin writes `plugins/HardcoreRoulette/reports/report-<date>.txt` with versions, installed plugins, run state, the `config.yml` without secrets (token, URLs and passwords become `<removido>`, IPs become `<ip>`) and the latest log lines.
+3. Open an [issue](https://github.com/matheus-fsc/hardcore-roulette/issues/new/choose) and attach the file.
 
-1. Rode `/hcreport` (op; no console tambem funciona).
-2. O plugin cria `plugins/HardcoreRoulette/reports/report-<data>.txt` com versoes, plugins instalados, estado da run, o `config.yml` sem segredos (token, URLs e senhas viram `<removido>`, IPs viram `<ip>`) e as ultimas linhas do log.
-3. Abra um [issue](https://github.com/matheus-fsc/hardcore-roulette/issues/new/choose) e anexe o arquivo.
+The full log is in `plugins/HardcoreRoulette/logs/` (one file per day, kept for 7 days). `debug: true` in config.yml makes it more detailed.
 
-O log completo fica em `plugins/HardcoreRoulette/logs/` (um arquivo por dia, 7 dias). `debug: true` no config.yml deixa o log mais detalhado.
+## Addon API
 
-## API para addons
-
-O HardcoreRoulette registra a interface `dev.math.hcroulette.api.HardcoreRouletteAPI` no ServicesManager do Paper:
+HardcoreRoulette registers `dev.math.hcroulette.api.HardcoreRouletteAPI` in Paper's ServicesManager:
 
 ```java
-HardcoreRouletteAPI api = HardcoreRouletteAPI.get(); // null se o HardcoreRoulette nao estiver ligado
+HardcoreRouletteAPI api = HardcoreRouletteAPI.get(); // null when HardcoreRoulette is not enabled
 if (api != null && api.isRunWorld(player.getWorld())) {
     List<UUID> party = api.partyMembers(player.getUniqueId());
 }
 ```
 
-| Metodo | O que devolve |
-|--------|---------------|
-| `runNumber()` | Numero da run atual (modo party: nivel mais alto) |
-| `currentWorld()` | Mundo da run atual |
-| `isRunWorld(World)` | Se o mundo (ou o Nether/End dele) e de run |
-| `worldPrefix()`, `baseWorldName(World)` | Prefixo dos mundos e nome sem `_nether`/`_the_end` |
-| `isPartyMode()`, `partyMembers(UUID)` | Modo party e membros da party do jogador |
-| `xpShareTargets(Player)`, `xpShareRatio()` | Quem recebe XP compartilhado e a fracao |
+| Method | Returns |
+|--------|---------|
+| `runNumber()` | Current run number (party mode: highest level) |
+| `currentWorld()` | Current run world |
+| `isRunWorld(World)` | Whether the world (or its Nether/End) is a run world |
+| `worldPrefix()`, `baseWorldName(World)` | World prefix and name without `_nether`/`_the_end` |
+| `isPartyMode()`, `partyMembers(UUID)` | Party mode and the player's party members |
+| `xpShareTargets(Player)`, `xpShareRatio()` | Who receives shared XP and the ratio |
 
-Eventos: `RunStartEvent` (mundo novo, numero da run, jogadores), `RunEndEvent` (a run acabou) e `PlayerLifeEndEvent` (um jogador perdeu a vida).
+Events: `RunStartEvent` (new world, run number, players), `RunEndEvent` (the run ended) and `PlayerLifeEndEvent` (a player lost their life).
 
-Para compilar contra a API: `mvn install` neste repositorio e, no seu `pom.xml`, a dependencia `dev.math:HardcoreRoulette:1.2.0` com `<scope>provided</scope>`. Declare `softdepend: [HardcoreRoulette]` no plugin.yml. O [Classforge](https://github.com/matheus-fsc/classforge) usa a API assim.
+To compile against the API: run `mvn install` in this repository, then add `dev.math:HardcoreRoulette:1.2.0` with `<scope>provided</scope>` to your `pom.xml` and declare `softdepend: [HardcoreRoulette]` in plugin.yml. [Classforge](https://github.com/matheus-fsc/classforge) uses the API this way.
 
-## Compilar
+## Building
 
 ```bash
 mvn package
 # target/HardcoreRoulette.jar -> plugins/
 ```
 
-Requer JDK 25 e Maven. Dependência: `paper-api 26.3` (scope provided).
+Requires JDK 25 and Maven. Dependency: `paper-api 26.3` (provided scope).
 
-## Plugins recomendados
-- [Chunky](https://modrinth.com/plugin/chunky): pré-renderização dos mundos reserva.
-- [ViaVersion](https://modrinth.com/plugin/viaversion) + [ViaBackwards](https://modrinth.com/plugin/viabackwards): necessários para os bots de invasão (conectam como 1.21.1).
-- [AuraSkills](https://modrinth.com/plugin/auraskills), [SkinsRestorer](https://modrinth.com/plugin/skinsrestorer).
+## Recommended plugins
+- [Chunky](https://modrinth.com/plugin/chunky): pre-renders the backup worlds.
+- [ViaVersion](https://modrinth.com/plugin/viaversion) + [ViaBackwards](https://modrinth.com/plugin/viabackwards): needed for the invasion bots (they connect as 1.21.1).
+- [AuraSkills](https://modrinth.com/plugin/auraskills), [SkinsRestorer](https://modrinth.com/plugin/skinsrestorer), [Classforge](https://github.com/matheus-fsc/classforge).
 
-## Licença
+## License
 
 [MIT](LICENSE)
