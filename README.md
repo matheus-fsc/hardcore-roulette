@@ -2,7 +2,10 @@
 
 **English** | [Português (pt-BR)](README.pt-BR.md)
 
-![Paper](https://img.shields.io/badge/Paper-26.3-blue) ![Java](https://img.shields.io/badge/Java-25-orange) ![Version](https://img.shields.io/badge/version-1.2.0-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
+![Paper](https://img.shields.io/badge/Paper-26.3-blue) ![Java](https://img.shields.io/badge/Java-25-orange) ![Version](https://img.shields.io/badge/version-1.2.0-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey) ![Status](https://img.shields.io/badge/status-beta-orange)
+
+> **Beta.** HardcoreRoulette is in active development: expect changes and rough edges. It is fully open source (MIT) and community ideas are welcome. Suggest features or report bugs in the [issues](https://github.com/matheus-fsc/hardcore-roulette/issues/new/choose).
+
 
 A Paper plugin for **group hardcore**: when someone dies, the world resets for everyone. It ships with pre-generated backup worlds, seed voting, a party mode with levels, smart zombie hordes, and a set of tools for small servers among friends.
 

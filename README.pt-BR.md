@@ -2,6 +2,9 @@
 
 [English](README.md) | **Português (pt-BR)**
 
+> **Beta.** O HardcoreRoulette está em desenvolvimento ativo: pode mudar e ter arestas. É open source (MIT) e ideias da comunidade são bem-vindas. Sugira recursos ou reporte problemas nos [issues](https://github.com/matheus-fsc/hardcore-roulette/issues/new/choose).
+
+
 Plugin Paper para **hardcore em grupo**: quando alguém morre, o mundo reseta para todos, com mundos reserva pré-gerados, votação de seed, modo party por níveis, invasões de facções controladas por bots e várias ferramentas para servidores pequenos entre amigos.
 
 > Feito para **Paper 26.3** (Java 25). Mensagens em português (pt-BR).
