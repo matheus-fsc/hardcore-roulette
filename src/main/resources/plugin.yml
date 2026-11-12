@@ -1,5 +1,5 @@
 name: HardcoreRoulette
-version: 1.1.0
+version: 1.2.0
 main: dev.math.hcroulette.HardcoreRoulette
 api-version: "26.3"
 load: POSTWORLD
@@ -12,6 +12,9 @@ commands:
   ranking:
     description: Ranking de mortes, tempo jogado e dano
     aliases: [metricas, podio]
+  hcreport:
+    description: Gera um relatorio (versao, config sem segredos, log) para anexar num issue
+    permission: hcroulette.admin
   hcstatus:
     description: Mostra o estado do hardcore
   hcmodo:

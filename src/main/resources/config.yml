@@ -2,6 +2,10 @@
 #
 # Valores abaixo sao os padroes. Chave que faltar e adicionada sozinha quando o servidor liga.
 
+# Log detalhado em plugins/HardcoreRoulette/logs (ligue so para investigar um problema).
+# /hcreport gera um relatorio para anexar num issue.
+debug: false
+
 # Nome mostrado no titulo do /ranking.
 server-name: "Hardcore Roulette"
 

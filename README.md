@@ -46,9 +46,10 @@ O plugin faz o **reconhecimento do terreno** antes de spawnar (chão firme, céu
 | `/hcstatus` | todos | Estado da run |
 | `/hcmodo <votacao\|lobotomia\|party>` | op | Troca o modo |
 | `/hcreset` | op | Força um reset/votação |
-| `/invasao <zumbis|piratas|guilda|parar|status> [qtd] [alvo] [construtores]` | op | Invasões (`construtores` = onda só de minerador, cavador e lenhador) |\|piratas\|guilda\|parar\|status> [qtd] [alvo]` | op | Invasões |
+| `/invasao <zumbis\|piratas\|guilda\|parar\|status> [qtd] [alvo] [construtores]` | op | Invasoes (`construtores` = onda so de minerador, cavador e lenhador) |
 | `/migrar [min\|cancelar]` | op | Migração para o fallback |
 | `/bwhitelist <add\|remove> <gamertag>` | op | Whitelist Bedrock |
+| `/hcreport` | op | Gera um relatorio para anexar num issue |
 
 ## Configuração (`plugins/HardcoreRoulette/config.yml`)
 
@@ -69,6 +70,38 @@ Na primeira vez que o servidor liga, o plugin escreve o [config.yml](src/main/re
 | `invasion.controller-url`, `invasion.token` | Ligação com o minecraft-raiders (o token é gerado sozinho) |
 
 Arquivo opcional `host.txt` na raiz do servidor (`pc` ou `vps`) identifica onde o servidor está rodando, para o `/migrar`.
+
+## Reportar um problema
+
+1. Rode `/hcreport` (op; no console tambem funciona).
+2. O plugin cria `plugins/HardcoreRoulette/reports/report-<data>.txt` com versoes, plugins instalados, estado da run, o `config.yml` sem segredos (token, URLs e senhas viram `<removido>`, IPs viram `<ip>`) e as ultimas linhas do log.
+3. Abra um [issue](https://github.com/matheus-fsc/hardcore-roulette/issues/new/choose) e anexe o arquivo.
+
+O log completo fica em `plugins/HardcoreRoulette/logs/` (um arquivo por dia, 7 dias). `debug: true` no config.yml deixa o log mais detalhado.
+
+## API para addons
+
+O HardcoreRoulette registra a interface `dev.math.hcroulette.api.HardcoreRouletteAPI` no ServicesManager do Paper:
+
+```java
+HardcoreRouletteAPI api = HardcoreRouletteAPI.get(); // null se o HardcoreRoulette nao estiver ligado
+if (api != null && api.isRunWorld(player.getWorld())) {
+    List<UUID> party = api.partyMembers(player.getUniqueId());
+}
+```
+
+| Metodo | O que devolve |
+|--------|---------------|
+| `runNumber()` | Numero da run atual (modo party: nivel mais alto) |
+| `currentWorld()` | Mundo da run atual |
+| `isRunWorld(World)` | Se o mundo (ou o Nether/End dele) e de run |
+| `worldPrefix()`, `baseWorldName(World)` | Prefixo dos mundos e nome sem `_nether`/`_the_end` |
+| `isPartyMode()`, `partyMembers(UUID)` | Modo party e membros da party do jogador |
+| `xpShareTargets(Player)`, `xpShareRatio()` | Quem recebe XP compartilhado e a fracao |
+
+Eventos: `RunStartEvent` (mundo novo, numero da run, jogadores), `RunEndEvent` (a run acabou) e `PlayerLifeEndEvent` (um jogador perdeu a vida).
+
+Para compilar contra a API: `mvn install` neste repositorio e, no seu `pom.xml`, a dependencia `dev.math:HardcoreRoulette:1.2.0` com `<scope>provided</scope>`. Declare `softdepend: [HardcoreRoulette]` no plugin.yml. O [Classforge](https://github.com/matheus-fsc/classforge) usa a API assim.
 
 ## Compilar
 

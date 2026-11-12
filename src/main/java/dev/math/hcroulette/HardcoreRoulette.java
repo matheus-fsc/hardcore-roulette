@@ -64,7 +64,7 @@ import java.util.stream.Stream;
  * Hardcore em grupo: quando qualquer jogador morre, abre uma votacao de 60s entre
  * mundos pre-gerados; o vencedor vira o mundo atual e todos recomecam do zero nele.
  */
-public final class HardcoreRoulette extends JavaPlugin implements Listener {
+public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.math.hcroulette.api.HardcoreRouletteAPI {
 
     private static final int POOL_SIZE = 4;
     private static final int VOTE_SECONDS = 15 * 60;
@@ -83,6 +83,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
     private final List<String> pool = new ArrayList<>();
     private final List<String> trash = new ArrayList<>();
     private int run;
+    DiagLog diag;
     private int nextId;
 
     private volatile boolean voting;
@@ -103,6 +104,8 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
     public void onEnable() {
         runKey = new NamespacedKey(this, "run");
         saveDefaultConfig(); // instalacao nova: escreve o config.yml comentado
+        diag = new DiagLog(this);
+        diag.setDebug(getConfig().getBoolean("debug", false));
         getConfig().addDefault("on-death-commands", List.of("skills skill reset {player}"));
         getConfig().addDefault("mode", "votacao");
         getConfig().addDefault("pregen-radius", 300);
@@ -152,11 +155,14 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
             else for (String n : new ArrayList<>(pool)) { World pw = Bukkit.getWorld(n); if (pw != null) chunkyStart(pw); }
         }, 600L);
         for (Player p : Bukkit.getOnlinePlayers()) syncPlayer(p);
+        getServer().getServicesManager().register(dev.math.hcroulette.api.HardcoreRouletteAPI.class, this, this,
+                org.bukkit.plugin.ServicePriority.Normal);
         getLogger().info("Mundo atual: " + current + " | reserva: " + pool + " | run " + run);
     }
 
     @Override
     public void onDisable() {
+        if (diag != null) diag.close();
         if (arena != null) return; // arena nao tem estado do hardcore para salvar
         if (bar != null) Bukkit.getOnlinePlayers().forEach(p -> p.hideBossBar(bar));
         saveState();
@@ -437,6 +443,26 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
 
     /** Fracao do XP repassada para cada membro (party.xp-share). */
     public double xpShareRatio() { return getConfig().getDouble("party.xp-share", 0.5); }
+
+    // ---------------------------------------------------------------- API (dev.math.hcroulette.api)
+
+    @Override public int apiVersion() { return 1; }
+
+    @Override public int runNumber() { return partyMode() ? parties.highestLevel() : run; }
+
+    @Override public boolean isRunWorld(World w) { return w != null && baseOf(w.getName()).startsWith(PREFIX); }
+
+    @Override public String worldPrefix() { return PREFIX; }
+
+    @Override public String baseWorldName(World w) { return baseOf(w.getName()); }
+
+    @Override public boolean isPartyMode() { return partyMode(); }
+
+    @Override public List<UUID> partyMembers(UUID player) {
+        if (parties == null) return List.of();
+        String id = parties.partyOf(player);
+        return id == null ? List.of() : parties.memberIds(id);
+    }
 
     private final Map<String, Long> portalOmen = new HashMap<>();
 
@@ -950,6 +976,10 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
                 Title.Times.times(Duration.ofMillis(300), Duration.ofSeconds(3), Duration.ofSeconds(1)));
         Bukkit.getOnlinePlayers().forEach(p -> p.showTitle(t));
 
+        List<UUID> ids = new ArrayList<>();
+        for (Player p : humans()) ids.add(p.getUniqueId());
+        Bukkit.getPluginManager().callEvent(new dev.math.hcroulette.api.RunStartEvent(nw, run, ids));
+
         Bukkit.getScheduler().runTaskLater(this, this::cleanupTrash, 100L);
         Bukkit.getScheduler().runTaskLater(this, this::refillPool, 300L);
     }
@@ -1121,6 +1151,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         stats(dead.getUniqueId()).name = dead.getName();
         stats(dead.getUniqueId()).deaths++;
         endLife(dead.getUniqueId());
+        Bukkit.getPluginManager().callEvent(new dev.math.hcroulette.api.PlayerLifeEndEvent(dead, dead.getWorld()));
         // So quem morreu perde as skills (comandos configurados em config.yml)
         for (String cmd : getConfig().getStringList("on-death-commands")) {
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd.replace("{player}", dead.getName()));
@@ -1130,6 +1161,10 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
                 .append(msg != null ? msg.colorIfAbsent(NamedTextColor.RED)
                         : Component.text(e.getPlayer().getName() + " morreu", NamedTextColor.RED));
         if (partyMode()) { parties.onDeath(dead, reason); return; } // so a party de quem morreu avanca
+        if (!voting) {
+            World rw = current == null ? null : Bukkit.getWorld(current);
+            if (rw != null) Bukkit.getPluginManager().callEvent(new dev.math.hcroulette.api.RunEndEvent(rw, run));
+        }
         startVote(reason);
     }
 
@@ -1270,6 +1305,16 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
                 if (!(sender instanceof Player p)) return true;
                 if (args.length == 0) { openMenu(p); return true; }
                 try { vote(p, Integer.parseInt(args[0])); } catch (NumberFormatException ex) { openMenu(p); }
+            }
+            case "hcreport" -> {
+                try {
+                    java.io.File f = diag.report(sender, List.of(
+                            "Modo: " + getConfig().getString("mode", "votacao") + (partyMode() ? " (party ativo)" : ""),
+                            "Mundo atual: " + current + ", run " + run + ", votando: " + voting,
+                            "Reserva: " + pool,
+                            "Prefixo: " + PREFIX));
+                    sender.sendMessage("Relatorio salvo em " + f.getPath() + ". Anexe esse arquivo no issue do GitHub.");
+                } catch (java.io.IOException ex) { sender.sendMessage("Falha ao gerar o relatorio: " + ex.getMessage()); }
             }
             case "hcstatus" -> {
                 sender.sendMessage(Component.text("Run #" + run + " | mundo " + current

@@ -200,9 +200,14 @@ final class Parties {
         Bukkit.getScheduler().runTaskLater(plugin, this::prepareAhead, 200L);
     }
 
+    List<UUID> memberIds(String id) { return members(id); }
+
+    int highestLevel() { return maxLevel(); }
+
     void onDeath(Player dead, Component reason) {
         String id = partyId(dead.getUniqueId());
         int next = level(id) + 1;
+        Bukkit.getPluginManager().callEvent(new dev.math.hcroulette.api.RunEndEvent(dead.getWorld(), next - 1));
         data.set("party." + id + ".level", next);
         save();
         World w = ensureLevel(next);
@@ -224,6 +229,8 @@ final class Parties {
                 Bukkit.getScheduler().runTaskLater(plugin, () -> { if (m.isOnline()) plugin.resetPlayer(m, spawn); }, 2L);
             } else plugin.resetPlayer(m, spawn);
         }
+        Bukkit.getScheduler().runTaskLater(plugin, () -> Bukkit.getPluginManager().callEvent(
+                new dev.math.hcroulette.api.RunStartEvent(w, next, members(id))), 3L); // depois do respawn de quem morreu
         Bukkit.getScheduler().runTaskLater(plugin, this::prepareAhead, 400L); // longe do momento da morte
         Bukkit.getScheduler().runTaskLater(plugin, this::housekeeping, 600L);
     }
