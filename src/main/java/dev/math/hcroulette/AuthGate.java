@@ -61,7 +61,10 @@ final class AuthGate implements Listener {
         Bukkit.getScheduler().runTaskTimer(plugin, this::remind, 40L, 100L);
     }
 
-    private boolean enabled() { return plugin.getConfig().getBoolean("auth.enabled", true); }
+    /** Desliga sozinho quando o AuthMe esta instalado (ele assume o login). */
+    private boolean enabled() {
+        return plugin.getConfig().getBoolean("auth.enabled", true) && !Bukkit.getPluginManager().isPluginEnabled("AuthMe");
+    }
 
     static boolean bedrock(Player p) { return p.getName().startsWith("."); }
 

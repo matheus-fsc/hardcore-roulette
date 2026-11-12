@@ -29,8 +29,16 @@ scoreboard:
   enabled: true
 
 # Tela de login para contas sem senha (servidor offline/hibrido).
+# Com o AuthMe instalado, este login desliga sozinho e o AuthMe assume.
 auth:
   enabled: true
+  # Com o AuthMe: jogadores Bedrock (Floodgate, nick com ".") entram ja logados.
+  bedrock-auto-login: true
+
+# /coord (coordenadas salvas por run). Desligue se usar outro plugin, como o DirectionHUD.
+coords:
+  enabled: true
+  disabled-message: "As coordenadas agora ficam no DirectionHUD: use /dhud."
 
 # Mensagens automaticas no chat (MiniMessage). Se a lista nao existir, o plugin usa a dele.
 announcements:

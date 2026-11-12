@@ -141,6 +141,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
         announcer = new Announcer(this);
         netherHorde = new NetherHorde(this);
         auth = new AuthGate(this);
+        new AuthMeBridge(this);
         // tag do mundo no Tab (atualiza mudancas de mundo/portal)
         Bukkit.getScheduler().runTaskTimer(this, () -> { for (Player p : Bukkit.getOnlinePlayers()) updateTab(p); }, 100L, 100L);
         if (parties.enabled()) Bukkit.getScheduler().runTaskLater(this, parties::prepareAhead, 600L);
@@ -1353,7 +1354,10 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
                 if (sender instanceof Player p) openStats(p);
             }
             case "coord" -> {
-                if (sender instanceof Player p) coords.command(p, args, run);
+                if (!getConfig().getBoolean("coords.enabled", true)) {
+                    sender.sendMessage(Component.text(getConfig().getString("coords.disabled-message",
+                            "As coordenadas agora ficam no DirectionHUD: use /dhud."), NamedTextColor.YELLOW));
+                } else if (sender instanceof Player p) coords.command(p, args, run);
             }
             case "migrar" -> {
                 if (args.length == 0) { migrate(sender); return true; }

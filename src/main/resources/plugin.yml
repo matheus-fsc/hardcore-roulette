@@ -1,8 +1,9 @@
 name: HardcoreRoulette
-version: 1.2.0
+version: 1.3.0
 main: dev.math.hcroulette.HardcoreRoulette
 api-version: "26.3"
 load: POSTWORLD
+softdepend: [AuthMe, Chunky]
 description: Hardcore em grupo - alguem morreu, todo mundo recomeca num mundo votado.
 commands:
   vote:
