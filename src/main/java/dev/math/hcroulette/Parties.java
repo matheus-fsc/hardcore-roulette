@@ -81,7 +81,7 @@ final class Parties {
 
     // ---------------------------------------------------------------- niveis
 
-    static String worldName(int lvl) { return "hc_L" + lvl; }
+    static String worldName(int lvl) { return HardcoreRoulette.PREFIX + "L" + lvl; }
 
     private long seedFor(int lvl) {
         String k = "levels." + lvl + ".seed";
@@ -93,7 +93,7 @@ final class Parties {
     private String alias(int lvl) { return plugin.getConfig().getString("party.world-alias." + lvl); }
 
     private boolean isPartyWorld(String base) {
-        if (base.startsWith("hc_L") || base.startsWith("hc_l")) return true;
+        if (base.startsWith(HardcoreRoulette.PREFIX + "L") || base.startsWith(HardcoreRoulette.PREFIX + "l")) return true;
         var sec = plugin.getConfig().getConfigurationSection("party.world-alias");
         if (sec != null) for (String k : sec.getKeys(false)) if (base.equalsIgnoreCase(sec.getString(k))) return true;
         return false;
@@ -291,9 +291,9 @@ final class Parties {
         int ahead = maxLevel() + 1, min = minLevel();
         for (World w : new ArrayList<>(Bukkit.getWorlds())) {
             String base = HardcoreRoulette.baseOf(w.getName());
-            if (!base.startsWith("hc_L")) continue;
+            if (!base.startsWith(HardcoreRoulette.PREFIX + "L")) continue;
             int lvl;
-            try { lvl = Integer.parseInt(base.substring(4)); } catch (NumberFormatException e) { continue; }
+            try { lvl = Integer.parseInt(base.substring(HardcoreRoulette.PREFIX.length() + 1)); } catch (NumberFormatException e) { continue; }
             if (lvl < min) { plugin.trashWorld(base); continue; }
             // nao descarrega mundo onde alguma party esta: ao entrar, o mundo ja precisa estar carregado
             // (senao o servidor joga o jogador no mundo padrao e a posicao se perde)

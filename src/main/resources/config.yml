@@ -1,0 +1,93 @@
+# HardcoreRoulette: configuracao
+#
+# Valores abaixo sao os padroes. Chave que faltar e adicionada sozinha quando o servidor liga.
+
+# Nome mostrado no titulo do /ranking.
+server-name: "Hardcore Roulette"
+
+worlds:
+  # Prefixo dos mundos de run. O plugin cria <prefixo><numero> (e <prefixo>L<numero> no modo party).
+  # So mude antes da primeira run: mundos com o prefixo antigo deixam de ser reconhecidos.
+  prefix: "hc_"
+
+# Modo de jogo (troca com /hcmodo): votacao, lobotomia ou party.
+#   party: cada party tem o proprio mundo (World #n).
+mode: votacao
+
+# Raio do pre-carregamento de cada mundo novo com o Chunky (0 desliga; sem Chunky, nada acontece).
+pregen-radius: 300
+
+# Comandos rodados no console quando alguem morre. {player} = nome do jogador.
+on-death-commands:
+  - "skills skill reset {player}"
+
+scoreboard:
+  enabled: true
+
+# Tela de login para contas sem senha (servidor offline/hibrido).
+auth:
+  enabled: true
+
+# Mensagens automaticas no chat (MiniMessage). Se a lista nao existir, o plugin usa a dele.
+announcements:
+  enabled: true
+  interval-minutes: 10
+
+party:
+  xp-block-minutes: 15      # a cada N minutos sem ninguem da party morrer, a party ganha XP
+  xp-per-member: 10
+  xp-share: 0.5             # fracao do XP de habilidade repassada para quem esta na party
+  share-radius: 32
+
+# Horda noturna de zumbis (avisada a tarde, nasce as 13000 ticks).
+invasion:
+  enabled: true
+  min-day: 1
+  max-zombies: 24
+  rest-nights: 1            # noites sem horda depois de uma horda
+  chance:
+    zumbis: 0.25
+    piratas: 0.12
+    guilda: 0.10
+  ramp:
+    chance-per-hour: 0.06   # a chance sobe com as horas de jogo da run...
+    max-chance: 0.55        # ...ate este teto
+    size-per-hour: 2
+    days-per-zombie: 4
+
+# Zumbis-porco que seguem quem fica muito tempo no Nether.
+nether-horde:
+  enabled: true
+  max-minutes: 10
+
+# IA da horda (cavar, rampas, cercar). Desligue o que pesar no servidor.
+horde:
+  emerge: true              # mobs saem de dentro da terra com animacao
+  surround: true
+  ramp: true
+  ramp-shapes: "straight,zigzag,spiral"
+  ramp-wide-floating: true
+  dig-stairs: true
+  escape-ceiling: true
+  warrior-escort: true
+  log-to-planks: true
+  no-self-push: true
+  block-capacity: 32
+  record: true
+  debug: false
+
+# Acender um portal do Nether num mundo de run: raios, chuva e noite.
+portal-omen:
+  enabled: true
+  lightning: 2
+  storm: true
+  night: true
+  cooldown-minutes: 10
+  message: "O ceu escurece. Algo do outro lado sentiu o portal abrir."
+
+# Frasco Rapido: pocao + pepita de cobre na mesa. Bebe mais rapido, mas e mais fraco.
+quick-flask:
+  enabled: true
+  drink-seconds: 0.5
+  duration-factor: 0.5
+  levels-lost: 1

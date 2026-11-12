@@ -52,21 +52,21 @@ O plugin faz o **reconhecimento do terreno** antes de spawnar (chão firme, céu
 
 ## Configuração (`plugins/HardcoreRoulette/config.yml`)
 
-```yaml
-mode: votacao            # votacao | lobotomia | party
-pregen-radius: 300       # raio do Chunky para o proximo mundo (0 desliga)
-on-death-commands:       # rodados pelo console quando alguem morre ({player})
-  - skills skill reset {player}
-invasion:
-  enabled: true
-  controller-url: http://127.0.0.1:8765
-  token: <gerado automaticamente>   # o mesmo RAID_TOKEN do minecraft-raiders
-  chance: { zumbis: 0.35, | `/invasao <zumbis|piratas|guilda|parar|status> [qtd] [alvo] [construtores]` | op | Invasões (`construtores` = onda só de minerador, cavador e lenhador) |: 0.12, guilda: 0.10 }
-  min-day: 1
-horde:
-  block-capacity: 32     # blocos que cada zumbi minerador/lenhador carrega
-bedrock-whitelist: []
-```
+Na primeira vez que o servidor liga, o plugin escreve o [config.yml](src/main/resources/config.yml) comentado, com todos os padrões. Chave nova que aparecer numa atualização é adicionada sozinha, sem mexer no que você já mudou.
+
+| Seção | O que controla |
+|-------|----------------|
+| `server-name` | Nome no título do `/ranking` |
+| `worlds.prefix` | Prefixo dos mundos de run (padrão `hc_`; mude só antes da primeira run) |
+| `mode`, `pregen-radius`, `on-death-commands` | Modo de jogo, pré-carregamento com Chunky, comandos ao morrer |
+| `scoreboard`, `auth`, `announcements` | Placar lateral, tela de login, mensagens automáticas |
+| `party` | XP da party e divisão do XP de habilidade |
+| `invasion` | Horda noturna: chance, tamanho, rampa por horas de jogo, noites de descanso |
+| `nether-horde` | Zumbis-porco que seguem quem fica no Nether |
+| `horde` | IA da horda: sair da terra, cercar, rampas, cavar, escolta |
+| `portal-omen` | Raios, chuva e noite ao acender um portal do Nether |
+| `quick-flask` | Frasco Rápido: tempo de beber, duração e níveis perdidos |
+| `invasion.controller-url`, `invasion.token` | Ligação com o minecraft-raiders (o token é gerado sozinho) |
 
 Arquivo opcional `host.txt` na raiz do servidor (`pc` ou `vps`) identifica onde o servidor está rodando, para o `/migrar`.
 

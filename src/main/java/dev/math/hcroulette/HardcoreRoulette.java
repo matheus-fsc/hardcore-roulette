@@ -71,7 +71,8 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
     private static final int ALL_VOTED_SECONDS = 5; // todos votaram -> reinicia rapido
     private static final int[] GUI_SLOTS = {1, 3, 5, 7};
     private static final int PREGEN_RADIUS = 6; // chunks ao redor do spawn gerados antes
-    private static final String PREFIX = "hc_";
+    /** Prefixo dos mundos de run (worlds.prefix na config). */
+    static String PREFIX = "hc_";
 
     private NamespacedKey runKey;
     private Invasion invasion;
@@ -101,11 +102,13 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         runKey = new NamespacedKey(this, "run");
+        saveDefaultConfig(); // instalacao nova: escreve o config.yml comentado
         getConfig().addDefault("on-death-commands", List.of("skills skill reset {player}"));
         getConfig().addDefault("mode", "votacao");
         getConfig().addDefault("pregen-radius", 300);
         getConfig().addDefault("scoreboard.enabled", true);
         getConfig().options().copyDefaults(true);
+        PREFIX = getConfig().getString("worlds.prefix", "hc_");
         if (getConfig().getBoolean("arena-mode", false)) { // servidor de teste: so horda + comandos da arena
             arena = new Arena(this);
             getLogger().info("MODO ARENA: mecanicas do hardcore desligadas");
@@ -140,7 +143,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         if (parties.enabled()) Bukkit.getScheduler().runTaskLater(this, parties::prepareAhead, 600L);
         invasion = new Invasion(this);
         getServer().getPluginManager().registerEvents(invasion, this);
-        new QuickFlask(this);
+        if (getConfig().getBoolean("quick-flask.enabled", true)) new QuickFlask(this);
         Bukkit.getScheduler().runTaskTimer(this, this::dayTick, 20L, 20L);
         Bukkit.getScheduler().runTaskLater(this, this::refillPool, 100L);
         // reservas que ja existiam e ainda nao foram pre-renderizadas (uma por vez, espacadas)
@@ -442,22 +445,29 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
     public void onPortalLit(org.bukkit.event.world.PortalCreateEvent e) {
         World w = e.getWorld();
         if (e.getReason() != org.bukkit.event.world.PortalCreateEvent.CreateReason.FIRE
-                || w.getEnvironment() != World.Environment.NORMAL || !w.getName().startsWith("hc_") || e.getBlocks().isEmpty()) return;
+                || w.getEnvironment() != World.Environment.NORMAL || !w.getName().startsWith(PREFIX) || e.getBlocks().isEmpty()) return;
+        var po = getConfig();
+        if (!po.getBoolean("portal-omen.enabled", true)) return;
         long now = System.currentTimeMillis();
         Long last = portalOmen.get(w.getName());
-        if (last != null && now - last < 10 * 60_000L) return; // um presagio a cada 10 min por mundo
+        if (last != null && now - last < po.getInt("portal-omen.cooldown-minutes", 10) * 60_000L) return; // um presagio por mundo a cada N min
         portalOmen.put(w.getName(), now);
         double x = 0, y = 0, z = 0;
         for (var st : e.getBlocks()) { x += st.getX(); y += st.getY(); z += st.getZ(); }
         int n = e.getBlocks().size();
         Location c = new Location(w, x / n + 0.5, y / n, z / n + 0.5);
-        w.strikeLightningEffect(c.clone().add(2.5, 0, 0));
-        Bukkit.getScheduler().runTaskLater(this, () -> w.strikeLightningEffect(c.clone().add(-2.5, 0, 1.5)), 12L);
-        w.setStorm(true);
-        w.setWeatherDuration(6000);
-        w.setTime(13000);
-        for (Player p : w.getPlayers())
-            p.sendMessage(Component.text("O ceu escurece. Algo do outro lado sentiu o portal abrir.", NamedTextColor.DARK_RED, net.kyori.adventure.text.format.TextDecoration.ITALIC));
+        int bolts = po.getInt("portal-omen.lightning", 2);
+        for (int i = 0; i < bolts; i++) {
+            double ang = Math.PI * 2 * i / Math.max(1, bolts);
+            Location at = c.clone().add(2.5 * Math.cos(ang), 0, 2.5 * Math.sin(ang));
+            Bukkit.getScheduler().runTaskLater(this, () -> w.strikeLightningEffect(at), 1L + 12L * i);
+        }
+        if (po.getBoolean("portal-omen.storm", true)) { w.setStorm(true); w.setWeatherDuration(6000); }
+        if (po.getBoolean("portal-omen.night", true)) w.setTime(13000);
+        String msg = po.getString("portal-omen.message", "O ceu escurece. Algo do outro lado sentiu o portal abrir.");
+        if (msg != null && !msg.isBlank())
+            for (Player p : w.getPlayers())
+                p.sendMessage(Component.text(msg, NamedTextColor.DARK_RED, net.kyori.adventure.text.format.TextDecoration.ITALIC));
         getLogger().info("Portal do Nether aceso em " + w.getName() + " " + c.getBlockX() + "," + c.getBlockY() + "," + c.getBlockZ() + ": raios, chuva e noite");
     }
 
@@ -707,7 +717,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
 
     private void openStats(Player viewer) {
         StatsMenu holder = new StatsMenu();
-        holder.inv = Bukkit.createInventory(holder, 27, Component.text("Ranking BABYLON FLAMES"));
+        holder.inv = Bukkit.createInventory(holder, 27, Component.text("Ranking " + getConfig().getString("server-name", "Hardcore Roulette")));
         Inventory inv = holder.inv;
 
         List<UUID> ids = new ArrayList<>(stats.keySet());
@@ -1064,7 +1074,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener {
         String num;
         if (partyMode()) {
             String base = baseOf(p.getWorld().getName());
-            num = base.toLowerCase().startsWith("hc_l") ? base.substring(4) : "?";
+            num = base.toLowerCase().startsWith((PREFIX + "l").toLowerCase()) ? base.substring(PREFIX.length() + 1) : "?";
         } else num = String.valueOf(run);
         // dimensao: overworld W# verde, nether N# vermelho, end END# roxo
         String tag; NamedTextColor color;

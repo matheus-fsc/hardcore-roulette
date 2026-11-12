@@ -30,10 +30,15 @@ import java.util.List;
  */
 final class QuickFlask implements Listener {
 
-    static final float DRINK_SECONDS = 0.5f;
+    private final float drinkSeconds;
+    private final double durationFactor;
+    private final int levelsLost;
     private final NamespacedKey recipeKey, flagKey;
 
     QuickFlask(HardcoreRoulette plugin) {
+        drinkSeconds = (float) plugin.getConfig().getDouble("quick-flask.drink-seconds", 0.5);
+        durationFactor = plugin.getConfig().getDouble("quick-flask.duration-factor", 0.5);
+        levelsLost = plugin.getConfig().getInt("quick-flask.levels-lost", 1);
         recipeKey = new NamespacedKey(plugin, "frasco_rapido");
         flagKey = new NamespacedKey(plugin, "frasco_rapido");
         ItemStack icon = new ItemStack(Material.POTION);
@@ -69,11 +74,12 @@ final class QuickFlask implements Listener {
         for (PotionEffect pe : base) {
             PotionEffectType t = pe.getType();
             if (t.isInstant()) {
-                if (pe.getAmplifier() > 0) weak.add(new PotionEffect(t, 1, pe.getAmplifier() - 1));
+                if (levelsLost <= 0) weak.add(pe);
+                else if (pe.getAmplifier() >= levelsLost) weak.add(new PotionEffect(t, 1, pe.getAmplifier() - levelsLost));
                 else if (t == PotionEffectType.INSTANT_HEALTH) weak.add(new PotionEffect(PotionEffectType.REGENERATION, 80, 1));
                 else weak.add(new PotionEffect(t, 1, 0));
             } else {
-                weak.add(new PotionEffect(t, Math.max(20, pe.getDuration() / 2), Math.max(0, pe.getAmplifier() - 1),
+                weak.add(new PotionEffect(t, Math.max(20, (int) (pe.getDuration() * durationFactor)), Math.max(0, pe.getAmplifier() - levelsLost),
                         pe.isAmbient(), pe.hasParticles(), pe.hasIcon()));
             }
         }
@@ -90,7 +96,7 @@ final class QuickFlask implements Listener {
         pm.getPersistentDataContainer().set(flagKey, PersistentDataType.BYTE, (byte) 1);
         out.setItemMeta(pm);
         out.setData(DataComponentTypes.CONSUMABLE, Consumable.consumable()
-                .consumeSeconds(DRINK_SECONDS)
+                .consumeSeconds(drinkSeconds)
                 .animation(ItemUseAnimation.DRINK)
                 .sound(Key.key("entity.generic.drink"))
                 .hasConsumeParticles(false)
