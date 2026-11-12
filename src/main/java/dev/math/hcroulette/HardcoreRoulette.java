@@ -75,7 +75,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
     static String PREFIX = "hc_";
 
     private NamespacedKey runKey;
-    private Invasion invasion;
     private Parties parties;
     private Coords coords;
     private BukkitTask migrateTask;
@@ -95,9 +94,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
 
     // ---------------------------------------------------------------- ciclo de vida
 
-    private Arena arena;
     private Announcer announcer;
-    private NetherHorde netherHorde;
     private AuthGate auth;
 
     @Override
@@ -112,11 +109,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
         getConfig().addDefault("scoreboard.enabled", true);
         getConfig().options().copyDefaults(true);
         PREFIX = getConfig().getString("worlds.prefix", "hc_");
-        if (getConfig().getBoolean("arena-mode", false)) { // servidor de teste: so horda + comandos da arena
-            arena = new Arena(this);
-            getLogger().info("MODO ARENA: mecanicas do hardcore desligadas");
-            return;
-        }
         loadState();
         loadStats();
         for (Player p : Bukkit.getOnlinePlayers()) sessionStart.put(p.getUniqueId(), System.currentTimeMillis());
@@ -139,14 +131,11 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
         parties.perks = new PartyPerks(this, parties);
         parties.preloadAll(); // mundos das parties prontos antes de alguem entrar
         announcer = new Announcer(this);
-        netherHorde = new NetherHorde(this);
         auth = new AuthGate(this);
         new AuthMeBridge(this);
         // tag do mundo no Tab (atualiza mudancas de mundo/portal)
         Bukkit.getScheduler().runTaskTimer(this, () -> { for (Player p : Bukkit.getOnlinePlayers()) updateTab(p); }, 100L, 100L);
         if (parties.enabled()) Bukkit.getScheduler().runTaskLater(this, parties::prepareAhead, 600L);
-        invasion = new Invasion(this);
-        getServer().getPluginManager().registerEvents(invasion, this);
         if (getConfig().getBoolean("quick-flask.enabled", true)) new QuickFlask(this);
         Bukkit.getScheduler().runTaskTimer(this, this::dayTick, 20L, 20L);
         Bukkit.getScheduler().runTaskLater(this, this::refillPool, 100L);
@@ -164,7 +153,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
     @Override
     public void onDisable() {
         if (diag != null) diag.close();
-        if (arena != null) return; // arena nao tem estado do hardcore para salvar
         if (bar != null) Bukkit.getOnlinePlayers().forEach(p -> p.hideBossBar(bar));
         saveState();
         saveStats();
@@ -425,11 +413,11 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
     /** Jogadores de verdade online (sem os bots de invasao). */
     private List<Player> humans() {
         List<Player> out = new ArrayList<>();
-        for (Player p : Bukkit.getOnlinePlayers()) if (invasion == null || !invasion.isBot(p)) out.add(p);
+        out.addAll(Bukkit.getOnlinePlayers());
         return out;
     }
 
-    public boolean isVoting() { return voting; }
+    @Override public boolean isVoting() { return voting; }
 
     /** API para outros plugins (classes): quem da party recebe XP compartilhado de {@code p}. */
     public List<Player> xpShareTargets(Player p) {
@@ -447,7 +435,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
 
     // ---------------------------------------------------------------- API (dev.math.hcroulette.api)
 
-    @Override public int apiVersion() { return 1; }
+    @Override public int apiVersion() { return 2; }
 
     @Override public int runNumber() { return partyMode() ? parties.highestLevel() : run; }
 
@@ -633,7 +621,7 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
 
     /** Roda a cada segundo: soma tempo de vida e anuncia mudanca de periodo do dia. */
     /** Tempo vivo da run: a maior vida atual entre quem esta online no mundo da run (segundos). */
-    long runAliveSeconds() {
+    @Override public long runAliveSeconds() {
         long m = 0;
         for (Player p : humans()) m = Math.max(m, stats(p.getUniqueId()).lifeSeconds);
         return m;
@@ -801,7 +789,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDamage(org.bukkit.event.entity.EntityDamageEvent e) {
         if (!(e.getEntity() instanceof Player p)) return;
-        if (invasion.isBot(p)) return;
         if (p.getGameMode() != GameMode.SURVIVAL && p.getGameMode() != GameMode.ADVENTURE) return;
         stats(p.getUniqueId()).lifeDamage += e.getFinalDamage();
     }
@@ -890,7 +877,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
         if (parties != null) parties.rememberQuit(e.getPlayer());
-        if (invasion.isBot(e.getPlayer())) { invasion.handleQuit(e); return; }
         Long start = sessionStart.remove(e.getPlayer().getUniqueId());
         if (start != null) stats(e.getPlayer().getUniqueId()).playSeconds += (System.currentTimeMillis() - start) / 1000;
         // quem saiu deixa de contar; reavalia no proximo tick (o jogador ainda esta na lista agora)
@@ -968,7 +954,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
         nw.setStorm(false);
         nw.setThundering(false);
         Location spawn = currentSpawn();
-        invasion.abortSilently();
         for (Player p : humans()) resetPlayer(p, spawn);
 
         Bukkit.broadcast(Component.text("Mundo " + chosen + " venceu! Seed " + nw.getSeed() + " - run #" + run, NamedTextColor.GREEN, TextDecoration.BOLD));
@@ -1100,7 +1085,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
     }
 
     void updateTab(Player p) {
-        if (invasion != null && invasion.isBot(p)) return;
         // numero do mundo: no modo party o World da party (hc_L<n>), senao a run
         String num;
         if (partyMode()) {
@@ -1135,7 +1119,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
 
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
-        if (invasion.handleJoin(e)) return;
         sessionStart.put(e.getPlayer().getUniqueId(), System.currentTimeMillis());
         stats(e.getPlayer().getUniqueId()).name = e.getPlayer().getName();
         syncPlayer(e.getPlayer());
@@ -1147,7 +1130,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onDeath(PlayerDeathEvent e) {
-        if (invasion.handleDeath(e)) return; // bot de invasao: nao e morte hardcore
         Player dead = e.getPlayer();
         stats(dead.getUniqueId()).name = dead.getName();
         stats(dead.getUniqueId()).deaths++;
@@ -1171,7 +1153,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
 
     @EventHandler
     public void onRespawn(PlayerRespawnEvent e) {
-        if (invasion.isBot(e.getPlayer())) return;
         if (partyMode()) {
             World pw = parties.worldFor(e.getPlayer());
             if (!baseOf(e.getRespawnLocation().getWorld().getName()).equals(pw.getName())) e.setRespawnLocation(parties.spawnOf(pw));
@@ -1288,12 +1269,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-        if (cmd.getName().equalsIgnoreCase("arena")) {
-            if (arena == null) sender.sendMessage("arena-mode desligado neste servidor");
-            else arena.command(sender, args);
-            return true;
-        }
-        if (arena != null) return true; // na arena os outros comandos nao existem
         String cn = cmd.getName().toLowerCase();
         if ((cn.equals("login") || cn.equals("register") || cn.equals("senha")) && sender instanceof Player ap && auth != null) return auth.command(ap, cn, args);
         if (cn.equals("authreset") && auth != null) {
@@ -1401,28 +1376,6 @@ public final class HardcoreRoulette extends JavaPlugin implements Listener, dev.
                 }
                 sender.sendMessage(Component.text("Whitelist Bedrock: " + (list.isEmpty() ? "(vazia)" : String.join(", ", list))
                         + "  |  /bwhitelist <add|remove> <gamertag>", NamedTextColor.AQUA));
-            }
-            case "invasao" -> {
-                if (args.length == 0 || args[0].equalsIgnoreCase("status")) {
-                    sender.sendMessage(Component.text("Invasao: " + invasion.status() + "  |  /invasao <zumbis|piratas|guilda> [qtd]  |  /invasao parar", NamedTextColor.GOLD));
-                } else if (args[0].equalsIgnoreCase("nether")) { // teste: /invasao nether [alvo]
-                    Player t = args.length > 1 ? Bukkit.getPlayerExact(args[1]) : (sender instanceof Player sp ? sp : null);
-                    if (t == null || t.getWorld().getEnvironment() != org.bukkit.World.Environment.NETHER) {
-                        sender.sendMessage(Component.text("O alvo precisa estar no Nether.", NamedTextColor.RED)); return true;
-                    }
-                    netherHorde.forceStart(t);
-                } else if (args[0].equalsIgnoreCase("parar")) {
-                    invasion.finish(Component.text("A invasao foi encerrada por " + sender.getName() + ".", NamedTextColor.GRAY));
-                } else {
-                    Invasion.Faction f = Invasion.Faction.of(args[0]);
-                    if (f == null) { sender.sendMessage(Component.text("Faccoes: zumbis, piratas, guilda", NamedTextColor.RED)); return true; }
-                    Integer n = null;
-                    if (args.length > 1) try { n = Integer.parseInt(args[1]); } catch (NumberFormatException ignored) { }
-                    Player target = args.length > 2 ? Bukkit.getPlayerExact(args[2]) : null;
-                    if (args.length > 2 && target == null) { sender.sendMessage(Component.text("Jogador " + args[2] + " nao esta online.", NamedTextColor.RED)); return true; }
-                    boolean builders = args.length > 3 && args[3].equalsIgnoreCase("construtores");
-                    invasion.start(f, n, sender, target, builders);
-                }
             }
             case "hcreset" -> startVote(Component.text("Reset forcado por " + sender.getName(), NamedTextColor.RED));
             default -> { return false; }

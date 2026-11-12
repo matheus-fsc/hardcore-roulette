@@ -53,4 +53,10 @@ public interface HardcoreRouletteAPI {
 
     /** Fracao do XP repassada a cada membro (party.xp-share). */
     double xpShareRatio();
+
+    /** Tempo vivo da run: a maior vida atual entre quem esta online (segundos). API 2. */
+    long runAliveSeconds();
+
+    /** Se a votacao do proximo mundo esta aberta. API 2. */
+    boolean isVoting();
 }

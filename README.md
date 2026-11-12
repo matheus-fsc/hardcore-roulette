@@ -2,12 +2,12 @@
 
 **English** | [Português (pt-BR)](README.pt-BR.md)
 
-![Paper](https://img.shields.io/badge/Paper-26.3-blue) ![Java](https://img.shields.io/badge/Java-25-orange) ![Version](https://img.shields.io/badge/version-1.2.0-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey) ![Status](https://img.shields.io/badge/status-beta-orange)
+![Paper](https://img.shields.io/badge/Paper-26.3-blue) ![Java](https://img.shields.io/badge/Java-25-orange) ![Version](https://img.shields.io/badge/version-1.4.0-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey) ![Status](https://img.shields.io/badge/status-beta-orange)
 
 > **Beta.** HardcoreRoulette is in active development: expect changes and rough edges. It is fully open source (MIT) and community ideas are welcome. Suggest features or report bugs in the [issues](https://github.com/matheus-fsc/hardcore-roulette/issues/new/choose).
 
 
-A Paper plugin for **group hardcore**: when someone dies, the world resets for everyone. It ships with pre-generated backup worlds, seed voting, a party mode with levels, smart zombie hordes, and a set of tools for small servers among friends.
+A Paper plugin for **group hardcore**: when someone dies, the world resets for everyone. It ships with pre-generated backup worlds, seed voting, a party mode with levels and a set of tools for small servers among friends. Zombie hordes live in the companion plugin [SmartHordes](https://github.com/matheus-fsc/smarthordes).
 
 > Built for **Paper 26.3** (Java 25). In-game text is in Brazilian Portuguese (pt-BR).
 
@@ -25,24 +25,20 @@ A Paper plugin for **group hardcore**: when someone dies, the world resets for e
 ### Players
 - `/ranking`: podium for most deaths, fewest deaths plus play time, and most damage in a single life.
 - `/dia` and automatic **Day N: Morning/Afternoon/Night** announcements with each player's time alive.
-- `/coord`: coordinates saved on the server per run, private or public, with distance and a direction arrow.
+- `/coord`: coordinates saved on the server per run, private or public, with distance and a direction arrow (`coords.enabled: false` hands this over to a HUD plugin such as [DirectionHUD](https://modrinth.com/plugin/directionhud)).
 - World tag in the Tab list: `[W#3] Nick` (party) or `[#12] Nick`.
 - Skill plugins (for example AuraSkills) reset **only for whoever died**, through configurable commands.
 - **Nether portal omen**: lighting a portal brings lightning, rain and instant night.
 - **Quick Flask**: potion plus copper nugget makes a weaker potion you drink in half a second.
 
-### Zombie hordes
-Night hordes that dig, build and surround players:
-- Roles follow vanilla tool rules: the **miner** (wooden pickaxe) breaks and places stone, the **digger** (wooden shovel) handles dirt, sand and gravel, the **lumberjack** (wooden axe) handles wood; brutes and tanks only chase and fight.
-- They start with no blocks and a limited inventory (`horde.block-capacity`): pillars and bridges only use what they mined. They work in two phases, **gather** (compute how much material the climb needs and collect exposed resources nearby) and **attack**.
-- The lumberjack crafts a crafting table, crafts the stairs the climb needs and nails them to the wall; any horde zombie can climb them.
-- The horde spreads across nearby players and rises out of the ground with an animation. Afternoon warnings tell players what is coming.
-- Optional bot factions (pirates, an enemy guild) driven by an external controller ([minecraft-raiders](https://github.com/matheus-fsc/minecraft-raiders)).
+### Companion plugins
+- **[SmartHordes](https://github.com/matheus-fsc/smarthordes)**: zombie hordes that dig, build and surround players, announced in the afternoon. It follows the current run's world through the API below.
+- **[Classforge](https://github.com/matheus-fsc/classforge)**: level-based skills tied to each life, with party XP sharing.
 
 ### Infrastructure
 - `/migrar [minutes]`: countdown and hand-off of the server to another machine, through a `migrate.flag` file an external launcher watches.
 - Bedrock whitelist (Geyser/Floodgate): `/bwhitelist add <gamertag>`.
-- Login screen for offline-mode servers (`auth`).
+- Login screen for offline-mode servers (`auth`). With [AuthMe](https://modrinth.com/plugin/authmereloaded) installed it turns itself off, and Bedrock players (Floodgate) are logged in automatically through AuthMe's API.
 
 ## Commands
 
@@ -56,7 +52,6 @@ Night hordes that dig, build and surround players:
 | `/hcstatus` | everyone | Run status |
 | `/hcmodo <votacao\|lobotomia\|party>` | op | Switch mode |
 | `/hcreset` | op | Force a reset or vote |
-| `/invasao <zumbis\|piratas\|guilda\|parar\|status> [amount] [target] [construtores]` | op | Invasions (`construtores` = builders only: miner, digger and lumberjack) |
 | `/migrar [min\|cancelar]` | op | Migrate to the fallback machine |
 | `/bwhitelist <add\|remove> <gamertag>` | op | Bedrock whitelist |
 | `/hcreport` | op | Create a report to attach to an issue |
@@ -70,14 +65,11 @@ On first start the plugin writes a commented [config.yml](src/main/resources/con
 | `server-name` | Name shown in the `/ranking` title |
 | `worlds.prefix` | Run world prefix (default `hc_`; only change it before the first run) |
 | `mode`, `pregen-radius`, `on-death-commands` | Game mode, Chunky pre-generation, commands on death |
-| `scoreboard`, `auth`, `announcements` | Sidebar, login screen, automatic messages |
+| `scoreboard`, `auth`, `announcements` | Sidebar, login screen (and AuthMe Bedrock auto-login), automatic messages |
+| `coords` | Turn `/coord` off when using a HUD plugin |
 | `party` | Party XP and skill XP sharing |
-| `invasion` | Night horde: chance, size, ramp by play time, rest nights |
-| `nether-horde` | Zombified piglins that follow players who stay in the Nether |
-| `horde` | Horde AI: rise from the ground, surround, ramps, digging, escorts |
 | `portal-omen` | Lightning, rain and night when a Nether portal is lit |
 | `quick-flask` | Quick Flask: drink time, duration and levels lost |
-| `invasion.controller-url`, `invasion.token` | Link to minecraft-raiders (the token is generated automatically) |
 
 ## Reporting a problem
 
@@ -106,10 +98,11 @@ if (api != null && api.isRunWorld(player.getWorld())) {
 | `worldPrefix()`, `baseWorldName(World)` | World prefix and name without `_nether`/`_the_end` |
 | `isPartyMode()`, `partyMembers(UUID)` | Party mode and the player's party members |
 | `xpShareTargets(Player)`, `xpShareRatio()` | Who receives shared XP and the ratio |
+| `runAliveSeconds()`, `isVoting()` | How long the run has been alive and whether a vote is open (API 2) |
 
 Events: `RunStartEvent` (new world, run number, players), `RunEndEvent` (the run ended) and `PlayerLifeEndEvent` (a player lost their life).
 
-To compile against the API: run `mvn install` in this repository, then add `dev.math:HardcoreRoulette:1.2.0` with `<scope>provided</scope>` to your `pom.xml` and declare `softdepend: [HardcoreRoulette]` in plugin.yml. [Classforge](https://github.com/matheus-fsc/classforge) uses the API this way.
+To compile against the API: run `mvn install` in this repository, then add `dev.math:HardcoreRoulette:1.4.0` with `<scope>provided</scope>` to your `pom.xml` and declare `softdepend: [HardcoreRoulette]` in plugin.yml. [Classforge](https://github.com/matheus-fsc/classforge) and [SmartHordes](https://github.com/matheus-fsc/smarthordes) use the API this way.
 
 ## Building
 
@@ -122,7 +115,9 @@ Requires JDK 25 and Maven. Dependency: `paper-api 26.3` (provided scope).
 
 ## Recommended plugins
 - [Chunky](https://modrinth.com/plugin/chunky): pre-renders the backup worlds.
-- [ViaVersion](https://modrinth.com/plugin/viaversion) + [ViaBackwards](https://modrinth.com/plugin/viabackwards): needed for the invasion bots (they connect as 1.21.1).
+- [SmartHordes](https://github.com/matheus-fsc/smarthordes): zombie hordes.
+- [AuthMe](https://modrinth.com/plugin/authmereloaded): login for offline-mode servers.
+- [DirectionHUD](https://modrinth.com/plugin/directionhud): waypoints and a compass HUD.
 - [AuraSkills](https://modrinth.com/plugin/auraskills), [SkinsRestorer](https://modrinth.com/plugin/skinsrestorer), [Classforge](https://github.com/matheus-fsc/classforge).
 
 ## License

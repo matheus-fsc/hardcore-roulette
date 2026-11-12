@@ -51,42 +51,8 @@ party:
   xp-share: 0.5             # fracao do XP de habilidade repassada para quem esta na party
   share-radius: 32
 
-# Horda noturna de zumbis (avisada a tarde, nasce as 13000 ticks).
-invasion:
-  enabled: true
-  min-day: 1
-  max-zombies: 24
-  rest-nights: 1            # noites sem horda depois de uma horda
-  chance:
-    zumbis: 0.25
-    piratas: 0.12
-    guilda: 0.10
-  ramp:
-    chance-per-hour: 0.06   # a chance sobe com as horas de jogo da run...
-    max-chance: 0.55        # ...ate este teto
-    size-per-hour: 2
-    days-per-zombie: 4
-
-# Zumbis-porco que seguem quem fica muito tempo no Nether.
-nether-horde:
-  enabled: true
-  max-minutes: 10
-
-# IA da horda (cavar, rampas, cercar). Desligue o que pesar no servidor.
-horde:
-  emerge: true              # mobs saem de dentro da terra com animacao
-  surround: true
-  ramp: true
-  ramp-shapes: "straight,zigzag,spiral"
-  ramp-wide-floating: true
-  dig-stairs: true
-  escape-ceiling: true
-  warrior-escort: true
-  log-to-planks: true
-  no-self-push: true
-  block-capacity: 32
-  record: true
-  debug: false
+# Hordas de zumbis (invasao noturna, horda do Nether, IA que cava e constroi) ficam no plugin
+# SmartHordes, que usa este plugin pela API para saber o mundo e o tempo da run.
 
 # Acender um portal do Nether num mundo de run: raios, chuva e noite.
 portal-omen:

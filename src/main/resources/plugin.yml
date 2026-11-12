@@ -1,5 +1,5 @@
 name: HardcoreRoulette
-version: 1.3.0
+version: 1.4.0
 main: dev.math.hcroulette.HardcoreRoulette
 api-version: "26.3"
 load: POSTWORLD
@@ -25,10 +25,6 @@ commands:
   migrar:
     description: Migra o servidor do PC para a VPS (quando o host vai sair)
     permission: hcroulette.admin
-  invasao:
-    description: Invasoes de faccoes (zumbis, piratas, guilda)
-    usage: /invasao <zumbis|piratas|guilda|parar|status> [qtd] [alvo]
-    permission: hcroulette.admin
   coord:
     description: Salva e compartilha coordenadas (por run)
     usage: /coord [salvar|publico|lista|mostrar|apagar] <nome>
@@ -45,10 +41,6 @@ commands:
     permission: hcroulette.admin
   hcreset:
     description: Forca uma votacao de reset
-    permission: hcroulette.admin
-  arena:
-    description: Arena de teste da horda (so com arena-mode)
-    usage: /arena load|run|stop
     permission: hcroulette.admin
   anuncio:
     description: Anuncios automaticos no chat

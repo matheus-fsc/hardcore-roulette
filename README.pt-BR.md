@@ -5,7 +5,7 @@
 > **Beta.** O HardcoreRoulette está em desenvolvimento ativo: pode mudar e ter arestas. É open source (MIT) e ideias da comunidade são bem-vindas. Sugira recursos ou reporte problemas nos [issues](https://github.com/matheus-fsc/hardcore-roulette/issues/new/choose).
 
 
-Plugin Paper para **hardcore em grupo**: quando alguém morre, o mundo reseta para todos, com mundos reserva pré-gerados, votação de seed, modo party por níveis, invasões de facções controladas por bots e várias ferramentas para servidores pequenos entre amigos.
+Plugin Paper para **hardcore em grupo**: quando alguém morre, o mundo reseta para todos, com mundos reserva pré-gerados, votação de seed, modo party por níveis e várias ferramentas para servidores pequenos entre amigos. As hordas de zumbis ficam no plugin companheiro [SmartHordes](https://github.com/matheus-fsc/smarthordes).
 
 > Feito para **Paper 26.3** (Java 25). Mensagens em português (pt-BR).
 
@@ -23,21 +23,18 @@ Plugin Paper para **hardcore em grupo**: quando alguém morre, o mundo reseta pa
 ### Jogadores
 - `/ranking`: pódio: mais mortes, menos mortes + tempo jogado, mais dano em uma vida.
 - `/dia` e anúncio automático de **Dia N: Manhã/Tarde/Noite** com o tempo vivo de cada jogador (formato cresce: `45s → 12min 30s → 2h 05min → 3d 4h`).
-- `/coord`: coordenadas salvas no servidor por run: privadas ou públicas, com distância e seta de direção, clique para copiar.
+- `/coord`: coordenadas salvas no servidor por run: privadas ou públicas, com distância e seta de direção, clique para copiar (`coords.enabled: false` passa isso para um plugin de HUD, como o [DirectionHUD](https://modrinth.com/plugin/directionhud)).
 - Tag do mundo no Tab: `[W#3] Nick` (party) ou `[#12] Nick`.
 - Skills (ex.: AuraSkills) resetam **só para quem morreu** via comandos configuráveis.
 
-### Invasões de facções
-Inimigos controlados por bots externos ([minecraft-raiders](https://github.com/matheus-fsc/minecraft-raiders)):
-- **Zumbis**: mobs do próprio servidor (sem bots), à noite, com rastreio de até 128 blocos. Papéis com regra de ferramenta do vanilla: **minerador** (picareta de madeira) quebra e coloca pedra e o que a picareta de madeira minera; **cavador** (pá de madeira) quebra terra, grama, areia, cascalho e argila e coloca terra; **lenhador** (machado de madeira) quebra e coloca blocos de madeira; brutamontes e tanque só perseguem e lutam. Começam sem blocos e têm inventário com limite (`horde.block-capacity`): constroem pilares e pontes só com o que mineraram, trabalham em duas fases: **coleta** (calcula o material que a subida precisa e busca recursos expostos num raio de 10 blocos, 16 para árvores) e **ataque**; se acabar o material no meio, voltam a coletar. Soltam o inventário ao morrer. A horda se distribui entre os jogadores próximos (cada zumbi vai no jogador com menos zumbis em cima, ponderado pela distância). `horde.debug: true` registra fase, inventário e ação de cada zumbi a cada 5 s. O lenhador prepara as escadas no chão como um jogador: crafta uma bancada (4 tábuas) se não tiver, coloca do lado, crafta todas as escadas que a subida precisa (receita vanilla, ~4 tábuas = 3 escadas), guarda a bancada e prega as escadas na parede/penhasco; qualquer zumbi da horda que acha uma escada sobe por ela.
-- **Piratas**: de dia, saqueiam baús e fogem.
-- **Guilda inimiga**: atravessa o mapa minerando; neutra até ser provocada.
-
-O plugin faz o **reconhecimento do terreno** antes de spawnar (chão firme, céu aberto ou túneis escuros no modo caverna, rota sem penhasco/água larga até o alvo), equipa cada bot conforme o papel e envia um **flare** com a posição real dos jogadores a cada segundo. Nomes de bot só são aceitos vindos de `127.0.0.1` através do proxy.
+### Plugins companheiros
+- **[SmartHordes](https://github.com/matheus-fsc/smarthordes)**: hordas de zumbis que cavam, constroem e cercam, avisadas à tarde. Segue o mundo da run pela API abaixo.
+- **[Classforge](https://github.com/matheus-fsc/classforge)**: habilidades por nível presas a cada vida, com XP dividido na party.
 
 ### Infra
 - `/migrar [minutos]`: contagem regressiva e passagem do servidor para outra máquina (fallback), usando um arquivo `migrate.flag` que um launcher externo observa.
 - Whitelist Bedrock (Geyser/Floodgate): `/bwhitelist add <gamertag>`.
+- Tela de login para servidores offline (`auth`). Com o [AuthMe](https://modrinth.com/plugin/authmereloaded) instalado ela desliga sozinha, e jogadores Bedrock (Floodgate) entram logados pela API do AuthMe.
 
 ## Comandos
 
@@ -51,7 +48,6 @@ O plugin faz o **reconhecimento do terreno** antes de spawnar (chão firme, céu
 | `/hcstatus` | todos | Estado da run |
 | `/hcmodo <votacao\|lobotomia\|party>` | op | Troca o modo |
 | `/hcreset` | op | Força um reset/votação |
-| `/invasao <zumbis\|piratas\|guilda\|parar\|status> [qtd] [alvo] [construtores]` | op | Invasoes (`construtores` = onda so de minerador, cavador e lenhador) |
 | `/migrar [min\|cancelar]` | op | Migração para o fallback |
 | `/bwhitelist <add\|remove> <gamertag>` | op | Whitelist Bedrock |
 | `/hcreport` | op | Gera um relatorio para anexar num issue |
@@ -65,14 +61,11 @@ Na primeira vez que o servidor liga, o plugin escreve o [config.yml](src/main/re
 | `server-name` | Nome no título do `/ranking` |
 | `worlds.prefix` | Prefixo dos mundos de run (padrão `hc_`; mude só antes da primeira run) |
 | `mode`, `pregen-radius`, `on-death-commands` | Modo de jogo, pré-carregamento com Chunky, comandos ao morrer |
-| `scoreboard`, `auth`, `announcements` | Placar lateral, tela de login, mensagens automáticas |
+| `scoreboard`, `auth`, `announcements` | Placar lateral, tela de login (e login automático do Bedrock no AuthMe), mensagens automáticas |
+| `coords` | Desliga o `/coord` quando há um plugin de HUD |
 | `party` | XP da party e divisão do XP de habilidade |
-| `invasion` | Horda noturna: chance, tamanho, rampa por horas de jogo, noites de descanso |
-| `nether-horde` | Zumbis-porco que seguem quem fica no Nether |
-| `horde` | IA da horda: sair da terra, cercar, rampas, cavar, escolta |
 | `portal-omen` | Raios, chuva e noite ao acender um portal do Nether |
 | `quick-flask` | Frasco Rápido: tempo de beber, duração e níveis perdidos |
-| `invasion.controller-url`, `invasion.token` | Ligação com o minecraft-raiders (o token é gerado sozinho) |
 
 Arquivo opcional `host.txt` na raiz do servidor (`pc` ou `vps`) identifica onde o servidor está rodando, para o `/migrar`.
 
@@ -103,10 +96,11 @@ if (api != null && api.isRunWorld(player.getWorld())) {
 | `worldPrefix()`, `baseWorldName(World)` | Prefixo dos mundos e nome sem `_nether`/`_the_end` |
 | `isPartyMode()`, `partyMembers(UUID)` | Modo party e membros da party do jogador |
 | `xpShareTargets(Player)`, `xpShareRatio()` | Quem recebe XP compartilhado e a fracao |
+| `runAliveSeconds()`, `isVoting()` | Tempo vivo da run e se a votacao esta aberta (API 2) |
 
 Eventos: `RunStartEvent` (mundo novo, numero da run, jogadores), `RunEndEvent` (a run acabou) e `PlayerLifeEndEvent` (um jogador perdeu a vida).
 
-Para compilar contra a API: `mvn install` neste repositorio e, no seu `pom.xml`, a dependencia `dev.math:HardcoreRoulette:1.2.0` com `<scope>provided</scope>`. Declare `softdepend: [HardcoreRoulette]` no plugin.yml. O [Classforge](https://github.com/matheus-fsc/classforge) usa a API assim.
+Para compilar contra a API: `mvn install` neste repositorio e, no seu `pom.xml`, a dependencia `dev.math:HardcoreRoulette:1.4.0` com `<scope>provided</scope>`. Declare `softdepend: [HardcoreRoulette]` no plugin.yml. O [Classforge](https://github.com/matheus-fsc/classforge) e o [SmartHordes](https://github.com/matheus-fsc/smarthordes) usam a API assim.
 
 ## Compilar
 
@@ -119,7 +113,9 @@ Requer JDK 25 e Maven. Dependência: `paper-api 26.3` (scope provided).
 
 ## Plugins recomendados
 - [Chunky](https://modrinth.com/plugin/chunky): pré-renderização dos mundos reserva.
-- [ViaVersion](https://modrinth.com/plugin/viaversion) + [ViaBackwards](https://modrinth.com/plugin/viabackwards): necessários para os bots de invasão (conectam como 1.21.1).
+- [SmartHordes](https://github.com/matheus-fsc/smarthordes): hordas de zumbis.
+- [AuthMe](https://modrinth.com/plugin/authmereloaded): login para servidores offline.
+- [DirectionHUD](https://modrinth.com/plugin/directionhud): waypoints e bússola na tela.
 - [AuraSkills](https://modrinth.com/plugin/auraskills), [SkinsRestorer](https://modrinth.com/plugin/skinsrestorer).
 
 ## Licença
